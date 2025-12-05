@@ -1,0 +1,15 @@
+services:
+  tg-wp-bridge:
+    build: .
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
+      TELEGRAM_WEBHOOK_SECRET: "${TELEGRAM_WEBHOOK_SECRET}"
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL}"
+      WP_BASE_URL: "${WP_BASE_URL}"
+      WP_USERNAME: "${WP_USERNAME}"
+      WP_APP_PASSWORD: "${WP_APP_PASSWORD}"
+      WP_CATEGORY_ID: "${WP_CATEGORY_ID}"
+      WP_PUBLISH_STATUS: "${WP_PUBLISH_STATUS:-publish}"
+    ports:
+      - "8000:8000"
