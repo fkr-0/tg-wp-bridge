@@ -1,0 +1,49 @@
+services:
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: wordpress
+      MYSQL_ROOT_PASSWORD: rootpassword
+    volumes:
+      - wp_db_data:/var/lib/mysql
+
+  wordpress:
+    image: wordpress:php8.2-apache
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+    ports:
+      - "8080:80"
+    volumes:
+      - wp_data:/var/www/html
+
+  # Optional: run the bridge in the same compose stack
+  # For local testing, you might prefer running uvicorn manually instead.
+  # tg-wp-bridge:
+  #   build: ..
+  #   restart: unless-stopped
+  #   environment:
+  #     TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
+  #     TELEGRAM_WEBHOOK_SECRET: "devsecret"
+  #     PUBLIC_BASE_URL: "https://your-tunnel-or-ngrok-url"
+  #     WP_BASE_URL: "http://wordpress:80"
+  #     WP_USERNAME: "admin"
+  #     WP_APP_PASSWORD: "your-wp-app-pass"
+  #     WP_CATEGORY_ID: "1"
+  #   ports:
+  #     - "8000:8000"
+  #   depends_on:
+  #     - wordpress
+
+volumes:
+  wp_db_data:
+  wp_data:
+# == end/tests/docker-compose.wordpress.yml ==

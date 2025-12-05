@@ -1,0 +1,275 @@
+#+TITLE: tg-wp-bridge
+#+SUBTITLE: Telegram channel → WordPress category bridge
+
+* Tp->Wp
+
+Do the telegram & wordpress boogie. *in style*.
+
+
+#+begin_src ascii
+[Telegram Channel]
+        |
+        | (forwarded via bot)
+        v
+[Telegram Bot Webhook (our service, in Docker)]
+        |
+        | 1. Parse message (text + media URLs)
+        | 2. Optionally download media
+        | 3. POST to WordPress REST API
+        v
+[WordPress REST API]
+        |
+        v
+[New Post in Category X]
+#+end_src
+
+
+=tg-wp-bridge= is a small FastAPI service that mirrors Telegram channel posts
+onto a WordPress blog via the WordPress REST API.
+
+Flow:
+
+#+BEGIN_SRC text
+Telegram Channel
+   |
+   v
+Telegram Bot (webhook)  --->  tg-wp-bridge (FastAPI, Docker)
+                                   |
+                                   v
+                             WordPress REST API
+                               (wp-json/wp/v2/posts)
+#+END_SRC
+
+Each channel message becomes a WordPress post in a configured category:
+- Text → post title & content
+- Photo (optional) → uploaded as media, set as =featured_media=
+
+No WordPress plugin required; the built-in REST API + Application Passwords
+are sufficient.
+
+* Project Layout
+
+#+BEGIN_SRC text
+.
+├── pyproject.toml
+├── README.org
+├── tg_wp_bridge
+│   ├── __init__.py
+│   ├── app.py
+│   ├── config.py
+│   ├── message_parser.py
+│   ├── schemas.py
+│   ├── telegram_api.py
+│   └── wordpress_api.py
+└── tests
+    ├── docker-compose.wordpress.yml
+    ├── test_message_parser.py
+    └── test_config.py
+#+END_SRC
+
+* Configuration
+
+Configuration is handled via =pydantic-settings= in =tg_wp_bridge/config.py=.
+
+Environment variables (can be provided via =.env= or container env):
+
+#+BEGIN_SRC text
+TELEGRAM_BOT_TOKEN       # Bot token from BotFather
+TELEGRAM_WEBHOOK_SECRET  # Path secret for /webhook/{secret}
+PUBLIC_BASE_URL          # e.g. https://bridge.example.com
+
+WP_BASE_URL              # e.g. https://blog.example.com
+WP_USERNAME              # WordPress user with Application Password
+WP_APP_PASSWORD          # Application password
+WP_CATEGORY_ID           # Numeric category ID
+WP_PUBLISH_STATUS        # publish | draft | pending (default: publish)
+#+END_SRC
+
+The service automatically reads:
+
+- Environment variables.
+- A =.env= file in the current working directory.
+
+An example file is provided as =env.example=.
+
+** Using =.env=
+
+#+BEGIN_SRC bash
+cp env.example .env
+# edit .env with your values
+$EDITOR .env
+#+END_SRC
+
+Relevant keys:
+
+#+BEGIN_SRC text
+TELEGRAM_BOT_TOKEN       # Bot token from BotFather
+TELEGRAM_WEBHOOK_SECRET  # Path secret for /webhook/{secret}
+PUBLIC_BASE_URL          # e.g. https://bridge.example.com
+
+WP_BASE_URL              # e.g. http://localhost:8080
+WP_USERNAME              # WordPress user with Application Password
+WP_APP_PASSWORD          # Application password
+WP_CATEGORY_ID           # Numeric category ID
+WP_PUBLISH_STATUS        # publish | draft | pending (default: publish)
+
+REQUIRED_HASHTAG         # Optional: e.g. "#blog"
+                         # If set, only messages containing this hashtag
+                         # will be mirrored to WordPress.
+#+END_SRC
+
+Internally, =tg_wp_bridge.config.Settings= is configured with:
+
+#+BEGIN_SRC python
+model_config = SettingsConfigDict(
+  env_file=".env",
+  env_file_encoding="utf-8",
+  extra="ignore",
+)
+#+END_SRC
+
+so you can rely on =.env= for local dev and fall back to environment
+variables in production.
+
+* Parsing & Mirroring Logic (high level)
+
+Key parsing helpers in =tg_wp_bridge/message_parser.py=:
+
+- =extract_message_entity= :: Pick =channel_post= over =message= where present.
+- =extract_message_text=   :: Prefer =text=, then =caption=.
+- =extract_hashtags=       :: Extract hashtags (=#tag=) from text.
+- =build_title_from_text=  :: Take first non-empty line, strip leading
+     hashtags, truncate to 60 chars.
+- =text_to_html=           :: Convert plain text to very simple HTML:
+     paragraphs on double-newlines, =<br>= within paragraphs.
+
+The main handler (=handle_telegram_update= in =tg_wp_bridge/app.py=):
+
+1. Ignores non-channel messages.
+2. Reads text, returns early if empty.
+3. If =REQUIRED_HASHTAG= is set, uses =extract_hashtags= and skips messages
+   that don’t contain it.
+4. Builds title via =build_title_from_text=.
+5. Renders content via =text_to_html=.
+6. Optionally uploads the largest attached photo as WordPress media.
+7. Creates a WordPress post using the REST API helpers.
+
+
+* Running Locally (FastAPI only)
+
+#+BEGIN_SRC bash
+python -m venv .venv
+source .venv/bin/activate
+
+pip install -e ".[dev]"   # from pyproject, if you want dev deps
+# or: pip install fastapi uvicorn[standard] httpx pydantic-settings pytest pytest-asyncio
+
+export TELEGRAM_BOT_TOKEN="123:abc"
+export TELEGRAM_WEBHOOK_SECRET="supersecret"
+export PUBLIC_BASE_URL="https://bridge.example.com"
+export WP_BASE_URL="http://localhost:8080"
+export WP_USERNAME="wpuser"
+export WP_APP_PASSWORD="app-password"
+export WP_CATEGORY_ID="1"
+
+uvicorn tg_wp_bridge.app:app --host 0.0.0.0 --port 8000
+
+#+END_SRC
+
+* Example WordPress Test Stack (docker-compose.wordpress.yml)
+
+Under =tests/docker-compose.wordpress.yml= there is an example stack that runs:
+- WordPress
+- MariaDB
+- (Optionally) the bridge (comment/uncomment)
+
+This is meant for local testing, not production.
+
+Usage:
+
+#+BEGIN_SRC bash
+cd tests
+docker compose -f docker-compose.wordpress.yml up -d
+
+# WordPress will be on http://localhost:8080
+# First-time setup: create admin user + enable Application Passwords
+#+END_SRC
+
+* Telegram Webhook Setup
+
+Once the bridge is reachable over HTTPS and configured:
+
+1. Start the bridge (Docker or locally).
+2. Call the internal helper endpoint:
+
+#+BEGIN_SRC bash
+curl -X POST http://localhost:8000/telegram/set_webhook
+#+END_SRC
+
+3. Inspect webhook status:
+
+#+BEGIN_SRC bash
+curl http://localhost:8000/telegram/webhook_info
+#+END_SRC
+
+Telegram will then POST updates to:
+
+#+BEGIN_SRC text
+PUBLIC_BASE_URL/webhook/TELEGRAM_WEBHOOK_SECRET
+#+END_SRC
+
+* Tests
+
+Pytest is used with some small unit tests:
+
+#+BEGIN_SRC bash
+uv run test
+# or
+uv run pytest --with pytest --with pytest-asyncio --with pydantic --with pydantic-settings --with fastapi --with httpx
+#+END_SRC
+
+Currently there are:
+- =tests/test_message_parser.py= – channel message parsing & photo selection
+- =tests/test_config.py= – sanity checks on settings loading
+
+You can extend this with integration tests that hit a local WordPress instance
+from the compose stack.
+
+* Code Quality
+
+The project includes several code quality tools that can be run via the hatch scripts:
+
+#+BEGIN_SRC bash
+# Run the type checker
+uv run typecheck
+
+# Run the linter
+uv run lint
+
+# Format the code
+uv run format
+
+# Run tests with coverage
+uv run cov
+#+END_SRC
+
+These tools help maintain code quality:
+- MyPy: static type checking
+- Ruff: fast Python linter and formatter
+- Black: code formatting (if needed)
+
+* Security / Caveats
+
+- Protect the =/telegram/set_webhook= and =/telegram/webhook_info= endpoints
+  (e.g. via reverse proxy auth or IP allowlisting)
+- Secrets should be managed by your orchestrator (Docker secrets, Kubernetes
+  secrets, etc.), not committed to git.
+- This bridge assumes simple channel posts; if you need albums, documents,
+  or more complex formatting, extend =handle_telegram_update= accordingly.
+
+* Extending
+
+Ideas:
+
+- support more stuff
+- white | blacklisting
