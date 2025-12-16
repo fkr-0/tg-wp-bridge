@@ -5,6 +5,23 @@
 
 Do the telegram & wordpress boogie. *in style*.
 
+** Concept
+- Required
+  - publicly reachable (sub) url
+  - credentials for tg bot (token)
+  - credentials for running wp instance (user, app password)
+
+1. We configure an existing telegram bot (through ~api.telegram.org~ + bot token), to call
+   our publicly reachable endpoint when bot receives message. This ~webhook~ receives
+   the message as content of a ~POST~ request. We use that requests body to..
+2. Parse / extract relevant data from the telegram message:
+   - tags
+   - title
+   - media content
+3. We send an authenticated ~POST~ request against ~WORDPRESS_URL/wp-json/wp/v2/posts"~. In
+   the body we provide a suitable representation of the *parsed* telegram message, leading
+   to the creation of a new blog post published at ~WORDPRESS_URL~ according to the
+   properties we provide with our request.
 
 #+begin_src ascii
 [Telegram Channel]

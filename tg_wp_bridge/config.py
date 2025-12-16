@@ -23,6 +23,11 @@ class Settings(BaseSettings):
         alias="TELEGRAM_WEBHOOK_SECRET",
         description="Path-level shared secret for webhook URL",
     )
+
+    telegram_api_base: str = Field(
+        default="https://api.telegram.org", alias="TELEGRAM_API_BASE"
+    )
+
     public_base_url: Optional[AnyHttpUrl] = Field(
         default=None,
         alias="PUBLIC_BASE_URL",

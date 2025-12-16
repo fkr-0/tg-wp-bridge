@@ -5,8 +5,7 @@ RUN useradd -m appuser
 
 WORKDIR /app
 
-# Install dependencies (fastapi includes pydantic; we add pydantic-settings explicitly)
-RUN pip install --no-cache-dir fastapi uvicorn[standard] httpx pydantic-settings
+RUN mkdir -p /app && pip install --no-cache-dir fastapi uvicorn[standard] httpx pydantic-settings
 
 # Copy package
 COPY tg_wp_bridge /app/tg_wp_bridge

@@ -71,6 +71,10 @@ async def handle_telegram_update(update: TelegramUpdate) -> None:
                 hashtags,
             )
             return
+        log.info(
+            "Message contains required hashtag %r, proceeding",
+            settings.required_hashtag,
+        )
 
     title = message_parser.build_title_from_text(text)
     content_html = message_parser.text_to_html(text)
@@ -80,9 +84,9 @@ async def handle_telegram_update(update: TelegramUpdate) -> None:
     photo = message_parser.find_photo_with_max_size(msg)
     if photo:
         log.info("Message has photo, file_id=%s", photo.file_id)
-        file_url = await telegram_api.get_file_direct_url(photo.file_id)
-        if file_url:
-            try:
+        try:
+            file_url = await telegram_api.get_file_direct_url(photo.file_id)
+            if file_url:
                 img_data = await telegram_api.download_file(file_url)
                 media_id = await wordpress_api.upload_media_to_wp(
                     filename="telegram-photo.jpg",
@@ -91,8 +95,8 @@ async def handle_telegram_update(update: TelegramUpdate) -> None:
                 )
                 if media_id:
                     media_ids.append(media_id)
-            except Exception:
-                log.exception("Failed handling Telegram photo")
+        except Exception:
+            log.exception("Failed handling Telegram photo, continuing without media")
 
     await wordpress_api.create_wp_post(
         title=title,

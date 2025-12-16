@@ -20,6 +20,7 @@ from .schemas import TelegramWebhookInfo
 
 log = logging.getLogger("tg-wp-bridge.telegram")
 
+# Use the setting directly instead of a module constant to allow test mocking
 TELEGRAM_API_BASE = "https://api.telegram.org"
 
 
@@ -31,7 +32,9 @@ def _ensure_bot_token() -> str:
 
 def _bot_url(path: str) -> str:
     token = _ensure_bot_token()
-    return f"{TELEGRAM_API_BASE}/bot{token}/{path.lstrip('/')}"
+    # Use settings.telegram_api_base to allow test overrides
+    base_url = getattr(settings, "telegram_api_base", TELEGRAM_API_BASE).rstrip("/")
+    return f"{base_url}/bot{token}/{path.lstrip('/')}"
 
 
 async def get_file_direct_url(file_id: str) -> Optional[str]:
@@ -52,7 +55,9 @@ async def get_file_direct_url(file_id: str) -> Optional[str]:
             return None
 
         file_path = data["result"]["file_path"]
-        url = f"{TELEGRAM_API_BASE}/file/bot{_ensure_bot_token()}/{file_path}"
+        # Use same base URL logic for file downloads
+        base_url = getattr(settings, "telegram_api_base", TELEGRAM_API_BASE).rstrip("/")
+        url = f"{base_url}/file/bot{_ensure_bot_token()}/{file_path}"
         return url
 
 

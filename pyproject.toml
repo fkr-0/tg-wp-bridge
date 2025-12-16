@@ -49,5 +49,5 @@ minversion = "8.0"
 addopts = "-q"
 testpaths = ["tests"]
 
-[tool.uv]
-dev-dependencies = ["pytest", "pytest-asyncio", "pytest-cov", "ruff", "black", "mypy"]
+[dependency-groups]
+dev = ["pytest", "pytest-asyncio", "pytest-cov", "ruff", "black", "mypy"]
