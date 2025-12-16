@@ -4,6 +4,9 @@ from tg_wp_bridge.schemas import (
     TgMessage,
     TgChat,
     TgPhotoSize,
+    TgVideo,
+    TgAnimation,
+    TgDocument,
 )
 from tg_wp_bridge import message_parser
 
@@ -252,6 +255,53 @@ def test_text_to_html_only_whitespace():
     html = message_parser.text_to_html("   \n  \n   ")
     # After strip, empty string should return empty paragraph
     assert html == "<p></p>"
+
+
+def test_collect_supported_media_photo_and_video():
+    """Collect both photos and videos in order."""
+    photos = [
+        TgPhotoSize(file_id="small", width=50, height=50),
+        TgPhotoSize(file_id="large", width=200, height=100),
+    ]
+    msg = TgMessage(
+        message_id=1,
+        chat=TgChat(id=1, type="channel"),
+        text="",
+        photo=photos,
+        video=TgVideo(file_id="vid123", file_name="clip.mp4", mime_type="video/mp4"),
+    )
+    media = message_parser.collect_supported_media(msg)
+    assert [m.media_type for m in media] == ["photo", "video"]
+    assert media[0].file_id == "large"
+    assert media[1].file_name == "clip.mp4"
+
+
+def test_collect_supported_media_deduplicates_file_ids():
+    """Ensure duplicate file IDs are not added multiple times."""
+    msg = TgMessage(
+        message_id=2,
+        chat=TgChat(id=1, type="channel"),
+        text="",
+        animation=TgAnimation(file_id="dup", file_name="fun.gif"),
+        document=TgDocument(file_id="dup", file_name="fun.gif"),
+    )
+    media = message_parser.collect_supported_media(msg)
+    assert len(media) == 1
+    assert media[0].media_type == "animation"
+
+
+def test_collect_supported_media_document_only():
+    """Document attachments should be surfaced as media entries."""
+    msg = TgMessage(
+        message_id=3,
+        chat=TgChat(id=1, type="channel"),
+        text="",
+        document=TgDocument(file_id="doc1", file_name="file.pdf", mime_type="application/pdf"),
+    )
+    media = message_parser.collect_supported_media(msg)
+    assert len(media) == 1
+    assert media[0].media_type == "document"
+    assert media[0].mime_type == "application/pdf"
 
 
 # == end/tests/test_message_parser.py ==

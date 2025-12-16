@@ -44,7 +44,7 @@ def wp_auth_header() -> Dict[str, str]:
 
 async def upload_media_to_wp(
     filename: str, content_type: str, data: bytes
-) -> Optional[int]:
+) -> Optional[WPMediaResponse]:
     """
     Upload a media file to WordPress and return its attachment ID.
     Returns None on error.
@@ -65,11 +65,45 @@ async def upload_media_to_wp(
             resp.raise_for_status()
             payload = resp.json()
             media = WPMediaResponse.model_validate(payload)
-            log.info("Uploaded media to WP: id=%s, filename=%s", media.id, filename)
-            return media.id
+            log.info(
+                "Uploaded media to WP: id=%s filename=%s mime=%s",
+                media.id,
+                filename,
+                getattr(media, "mime_type", content_type),
+            )
+            return media
     except Exception as e:
         log.exception("Failed to upload media to WordPress: %s", e)
         return None
+
+
+async def ping_wp_api() -> Dict[str, Any]:
+    """Fetch /wp-json to ensure WordPress is reachable."""
+
+    base = _ensure_wp_base_url()
+    url = f"{base}/wp-json"
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(url, timeout=10.0)
+        resp.raise_for_status()
+        payload = resp.json()
+        log.info("WordPress ping succeeded: %s", url)
+        return payload
+
+
+async def check_wp_credentials() -> Dict[str, Any]:
+    """Validate WordPress credentials via /wp-json/wp/v2/users/me."""
+
+    base = _ensure_wp_base_url()
+    url = f"{base}/wp-json/wp/v2/users/me"
+    headers = wp_auth_header()
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(url, headers=headers, timeout=10.0)
+        resp.raise_for_status()
+        payload = resp.json()
+        log.info("WordPress credentials OK for user id=%s", payload.get("id"))
+        return payload
 
 
 async def create_wp_post(

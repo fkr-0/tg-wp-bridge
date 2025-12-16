@@ -4,9 +4,27 @@ Helpers to extract relevant data from Telegram updates/messages.
 Pure functions only – no network or IO here.
 """
 
+from dataclasses import dataclass
 from typing import Optional, List
 
-from .schemas import TelegramUpdate, TgMessage, TgPhotoSize
+from .schemas import (
+    TelegramUpdate,
+    TgMessage,
+    TgPhotoSize,
+    TgVideo,
+    TgAnimation,
+    TgDocument,
+)
+
+
+@dataclass
+class TelegramMedia:
+    """Lightweight descriptor for supported Telegram media attachments."""
+
+    file_id: str
+    media_type: str
+    file_name: Optional[str] = None
+    mime_type: Optional[str] = None
 
 
 def extract_message_entity(update: TelegramUpdate) -> Optional[TgMessage]:
@@ -39,6 +57,78 @@ def find_photo_with_max_size(msg: TgMessage) -> Optional[TgPhotoSize]:
         return None
 
     return max(msg.photo, key=lambda p: p.width * p.height)
+
+
+def _add_media(
+    media: List[TelegramMedia],
+    seen_ids: set,
+    *,
+    file_id: Optional[str],
+    media_type: str,
+    file_name: Optional[str] = None,
+    mime_type: Optional[str] = None,
+) -> None:
+    if not file_id or file_id in seen_ids:
+        return
+    seen_ids.add(file_id)
+    media.append(
+        TelegramMedia(
+            file_id=file_id,
+            media_type=media_type,
+            file_name=file_name,
+            mime_type=mime_type,
+        )
+    )
+
+
+def collect_supported_media(msg: TgMessage) -> List[TelegramMedia]:
+    """Return a list of supported media descriptors for the message."""
+
+    media: List[TelegramMedia] = []
+    seen_ids: set = set()
+
+    photo = find_photo_with_max_size(msg)
+    if photo:
+        _add_media(
+            media,
+            seen_ids,
+            file_id=photo.file_id,
+            media_type="photo",
+            file_name=f"{photo.file_id}.jpg",
+            mime_type="image/jpeg",
+        )
+
+    if isinstance(msg.video, TgVideo):
+        _add_media(
+            media,
+            seen_ids,
+            file_id=msg.video.file_id,
+            media_type="video",
+            file_name=msg.video.file_name,
+            mime_type=msg.video.mime_type,
+        )
+
+    if isinstance(msg.animation, TgAnimation):
+        _add_media(
+            media,
+            seen_ids,
+            file_id=msg.animation.file_id,
+            media_type="animation",
+            file_name=msg.animation.file_name,
+            mime_type=msg.animation.mime_type,
+        )
+
+    if isinstance(msg.document, TgDocument):
+        _add_media(
+            media,
+            seen_ids,
+            file_id=msg.document.file_id,
+            media_type="document",
+            file_name=msg.document.file_name,
+            mime_type=msg.document.mime_type,
+        )
+
+    return media
 
 
 def extract_hashtags(text: str) -> List[str]:

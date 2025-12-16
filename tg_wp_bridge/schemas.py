@@ -31,12 +31,40 @@ class TgPhotoSize(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class TgFileBase(BaseModel):
+    file_id: str
+    file_unique_id: Optional[str] = None
+    file_name: Optional[str] = None
+    mime_type: Optional[str] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class TgVideo(TgFileBase):
+    width: Optional[int] = None
+    height: Optional[int] = None
+    duration: Optional[int] = None
+
+
+class TgAnimation(TgFileBase):
+    width: Optional[int] = None
+    height: Optional[int] = None
+    duration: Optional[int] = None
+
+
+class TgDocument(TgFileBase):
+    pass
+
+
 class TgMessage(BaseModel):
     message_id: int
     chat: TgChat
     text: Optional[str] = None
     caption: Optional[str] = None
     photo: Optional[List[TgPhotoSize]] = None
+    video: Optional[TgVideo] = None
+    animation: Optional[TgAnimation] = None
+    document: Optional[TgDocument] = None
 
     model_config = ConfigDict(extra="allow")
 
@@ -71,7 +99,16 @@ class WPPostResponse(BaseModel):
 
 
 class TelegramWebhookInfo(BaseModel):
-    ok: bool
-    result: Dict[str, Any]
+    """Telegram webhook status model (mirrors getWebhookInfo result)."""
+
+    url: Optional[str] = None
+    has_custom_certificate: bool = False
+    pending_update_count: int = 0
+    ip_address: Optional[str] = None
+    last_error_date: Optional[int] = None
+    last_error_message: Optional[str] = None
+    last_synchronization_error_date: Optional[int] = None
+    max_connections: Optional[int] = None
+    allowed_updates: Optional[List[str]] = None
 
     model_config = ConfigDict(extra="allow")

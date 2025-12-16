@@ -19,7 +19,11 @@ dependencies = [
   "httpx>=0.27.0",
   "pydantic>=2.7.0",
   "pydantic-settings>=2.2.0",
+  "click>=8.0.0",
 ]
+
+[project.scripts]
+tg-wp-bridge = "tg_wp_bridge.cli:cli"
 
 [project.optional-dependencies]
 dev = [

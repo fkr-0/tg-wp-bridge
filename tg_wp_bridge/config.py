@@ -5,10 +5,20 @@ Configuration management using pydantic-settings.
 - Also loads from a `.env` file in the current working directory (see env.example).
 """
 
-from typing import Optional
+from typing import Optional, Tuple
 
-from pydantic import AnyHttpUrl, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import AnyHttpUrl, Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict, EnvSettingsSource
+
+
+class LenientEnvSettingsSource(EnvSettingsSource):
+    """Env source that falls back to raw strings for complex values."""
+
+    def decode_complex_value(self, field_name, field, value):  # type: ignore[override]
+        try:
+            return super().decode_complex_value(field_name, field, value)
+        except ValueError:
+            return value
 
 
 class Settings(BaseSettings):
@@ -68,12 +78,66 @@ class Settings(BaseSettings):
         alias="REQUIRED_HASHTAG",
         description="If set, only mirror messages that contain this hashtag (including #).",
     )
+    chat_type_allowlist: Tuple[str, ...] = Field(
+        default=("channel",),
+        alias="CHAT_TYPE_ALLOWLIST",
+        description="Comma-separated chat types to allow (channel,supergroup,group,private).",
+    )
+    hashtag_allowlist: Optional[Tuple[str, ...]] = Field(
+        default=None,
+        alias="HASHTAG_ALLOWLIST",
+        description="Comma-separated hashtags that must appear (any match).",
+    )
+    hashtag_blocklist: Optional[Tuple[str, ...]] = Field(
+        default=None,
+        alias="HASHTAG_BLOCKLIST",
+        description="Comma-separated hashtags that will cause messages to be skipped.",
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls,
+        init_settings,
+        env_settings,
+        dotenv_settings,
+        file_secret_settings,
+    ):
+        return (
+            init_settings,
+            LenientEnvSettingsSource(settings_cls),
+            dotenv_settings,
+            file_secret_settings,
+        )
+
+    @staticmethod
+    def _parse_list_field(value, *, default):
+        if value is None:
+            return default
+        if isinstance(value, str):
+            items = [item.strip() for item in value.split(",") if item.strip()]
+            return tuple(items) if items else default
+        if isinstance(value, (list, tuple, set)):
+            items = [str(item).strip() for item in value if str(item).strip()]
+            return tuple(items) if items else default
+        return value
+
+    @field_validator("chat_type_allowlist", mode="before")
+    @classmethod
+    def _parse_chat_type_allowlist(cls, value):
+        parsed = cls._parse_list_field(value, default=("channel",))
+        return parsed if parsed is not None else ()
+
+    @field_validator("hashtag_allowlist", "hashtag_blocklist", mode="before")
+    @classmethod
+    def _parse_hashtag_lists(cls, value):
+        return cls._parse_list_field(value, default=None)
 
 
 settings = Settings()

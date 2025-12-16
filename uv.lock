@@ -1301,6 +1301,7 @@ name = "tg-wp-bridge"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "click" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "pydantic" },
@@ -1333,6 +1334,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
+    { name = "click", specifier = ">=8.0.0" },
     { name = "fastapi", specifier = ">=0.112.0" },
     { name = "hatch", marker = "extra == 'dev'", specifier = ">=1.9.4" },
     { name = "httpx", specifier = ">=0.27.0" },

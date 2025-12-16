@@ -14,6 +14,9 @@ def test_settings_defaults_ok(monkeypatch):
         "WP_CATEGORY_ID",
         "WP_PUBLISH_STATUS",
         "REQUIRED_HASHTAG",
+        "CHAT_TYPE_ALLOWLIST",
+        "HASHTAG_ALLOWLIST",
+        "HASHTAG_BLOCKLIST",
     ]:
         monkeypatch.delenv(key, raising=False)
 
@@ -24,6 +27,9 @@ def test_settings_defaults_ok(monkeypatch):
     assert getattr(s, "telegram_bot_token", None) is None
     # REQUIRED_HASHTAG should default to None
     assert s.required_hashtag is None
+    assert s.chat_type_allowlist == ("channel",)
+    assert s.hashtag_allowlist is None
+    assert s.hashtag_blocklist is None
 
 
 def test_settings_env_aliases(monkeypatch):
@@ -39,6 +45,9 @@ def test_settings_env_aliases(monkeypatch):
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://bridge.example.com")
     monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", "secret")
     monkeypatch.setenv("REQUIRED_HASHTAG", "#blog")
+    monkeypatch.setenv("CHAT_TYPE_ALLOWLIST", "channel,supergroup")
+    monkeypatch.setenv("HASHTAG_ALLOWLIST", "#blog,#news")
+    monkeypatch.setenv("HASHTAG_BLOCKLIST", "#spam")
 
     s = Settings()  # reloads from env
     assert str(s.wp_base_url) == "https://example.com/"
@@ -50,6 +59,9 @@ def test_settings_env_aliases(monkeypatch):
     assert str(s.public_base_url) == "https://bridge.example.com/"
     assert s.telegram_webhook_secret == "secret"
     assert s.required_hashtag == "#blog"
+    assert s.chat_type_allowlist == ("channel", "supergroup")
+    assert s.hashtag_allowlist == ("#blog", "#news")
+    assert s.hashtag_blocklist == ("#spam",)
 
 
 def test_settings_loads_from_dotenv(tmp_path, monkeypatch):
