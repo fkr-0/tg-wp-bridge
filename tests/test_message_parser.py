@@ -1,5 +1,4 @@
 # == tests/test_message_parser.py (extended) ==
-import pytest
 from tg_wp_bridge.schemas import (
     TelegramUpdate,
     TgMessage,
@@ -129,3 +128,130 @@ def test_text_to_html_multiple_paragraphs():
     html = message_parser.text_to_html(text)
     # Two paragraphs, first with <br>, second without
     assert html == "<p>First line<br>second line</p><p>Next paragraph</p>"
+
+
+def test_text_to_html_preserves_html_entities():
+    """Test that HTML entities are preserved."""
+    text = 'First line & second line < > "quotes"'
+    html = message_parser.text_to_html(text)
+    assert "First line" in html
+    assert "second line" in html
+
+
+def test_extract_hashtags_special_characters():
+    """Test hashtag extraction with special characters."""
+    text = "Check out #test_case and #123numbers and #混合语言"
+    tags = message_parser.extract_hashtags(text)
+    assert "#test_case" in tags
+    assert "#123numbers" in tags
+    assert "#混合语言" in tags
+
+
+def test_extract_hashtags_complex_punctuation():
+    """Test hashtag extraction with complex punctuation scenarios."""
+    text = "#tag1; #tag2: #tag3) #tag4( #tag5[ #tag6]"
+    tags = message_parser.extract_hashtags(text)
+    assert "#tag1" in tags
+    assert "#tag2" in tags
+    assert "#tag3" in tags
+    assert "#tag4" in tags
+    assert "#tag5" in tags
+    assert "#tag6" in tags
+
+
+def test_find_photo_with_max_size_equal_areas():
+    """Test photo selection when multiple photos have equal areas."""
+    photos = [
+        TgPhotoSize(file_id="a", width=100, height=100),  # area: 10_000
+        TgPhotoSize(file_id="b", width=100, height=100),  # area: 10_000
+        TgPhotoSize(file_id="c", width=50, height=200),  # area: 10_000
+    ]
+    msg = TgMessage(
+        message_id=10,
+        chat=TgChat(id=1, type="channel"),
+        text="",
+        photo=photos,
+    )
+
+    largest = message_parser.find_photo_with_max_size(msg)
+    # Should return the first one when areas are equal
+    assert largest is not None
+    assert largest.file_id == "a"
+
+
+def test_extract_message_entity_favors_channel_post():
+    """Test that channel_post is preferred over message."""
+    msg_channel = TgMessage(
+        message_id=2,
+        chat=TgChat(id=1, type="channel"),
+        text="from channel",
+    )
+    msg_normal = TgMessage(
+        message_id=1,
+        chat=TgChat(id=1, type="private"),
+        text="from message",
+    )
+    update = TelegramUpdate(
+        update_id=1,
+        message=msg_normal,
+        channel_post=msg_channel,
+    )
+
+    entity = message_parser.extract_message_entity(update)
+    assert entity is msg_channel
+
+    # Also test the reverse - message only
+    update_message_only = TelegramUpdate(
+        update_id=2,
+        message=msg_normal,
+    )
+    entity = message_parser.extract_message_entity(update_message_only)
+    assert entity is msg_normal
+
+    # Test with neither present
+    update_empty = TelegramUpdate(update_id=3)
+    entity = message_parser.extract_message_entity(update_empty)
+    assert entity is None
+
+
+def test_build_title_from_text_unicode_handling():
+    """Test title building with Unicode characters."""
+    text = "#blog 🌟 My title with émojis and càracters\nMore text"
+    title = message_parser.build_title_from_text(text)
+    assert title == "🌟 My title with émojis and càracters"
+
+
+def test_build_title_from_text_very_long_line():
+    """Test title building with very long first line."""
+    long_text = "A" * 200 + "\nSecond line"
+    title = message_parser.build_title_from_text(long_text, max_length=200)
+    assert title == "A" * 200
+
+
+def test_extract_message_text_with_empty_string():
+    """Test message text extraction when both text and caption are empty strings."""
+    update = make_update(text="", caption="")
+    text = message_parser.extract_message_text(update)
+    assert text == ""
+
+
+def test_extract_hashtags_empty_text():
+    """Test hashtag extraction with empty text."""
+    tags = message_parser.extract_hashtags("")
+    assert tags == []
+
+
+def test_text_to_html_empty_text():
+    """Test HTML conversion with empty text."""
+    html = message_parser.text_to_html("")
+    assert html == "<p></p>"
+
+
+def test_text_to_html_only_whitespace():
+    """Test HTML conversion with only whitespace."""
+    html = message_parser.text_to_html("   \n  \n   ")
+    # After strip, empty string should return empty paragraph
+    assert html == "<p></p>"
+
+
+# == end/tests/test_message_parser.py ==

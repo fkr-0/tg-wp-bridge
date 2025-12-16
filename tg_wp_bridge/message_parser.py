@@ -49,6 +49,7 @@ def extract_hashtags(text: str) -> List[str]:
     - A hashtag is any token starting with '#' and containing at least one
       non-'#' character.
     - Trailing punctuation like ',', '.', '!' is stripped.
+    - Opening and closing punctuation is also stripped (e.g., '(', ')', '[', ']').
     - Returned in order of first appearance, without duplicates.
     """
     hashtags: List[str] = []
@@ -58,8 +59,13 @@ def extract_hashtags(text: str) -> List[str]:
         token = raw_token
         if not token.startswith("#"):
             continue
-        # strip trailing punctuation commonly attached to hashtags
-        token = token.rstrip(".,!?:;)")
+        # strip trailing and opening punctuation commonly attached to hashtags
+        token = token.rstrip(".,!?:;)]}").lstrip("([{")
+        # Also handle hashtags that might have opening punctuation before #
+        if not token.startswith("#"):
+            continue
+        # Strip any remaining punctuation after the # processing
+        token = token.rstrip(".,!?:;)]}([{")
         if token == "#" or len(token) < 2:
             continue
         if token not in seen:
@@ -100,7 +106,11 @@ def build_title_from_text(text: str, max_length: int = 60) -> str:
         if not candidate:
             continue
 
-        return candidate[:max_length]
+        # Truncate to max_length AFTER processing
+        if len(candidate) > max_length:
+            candidate = candidate[:max_length]
+
+        return candidate
 
     return "(no title)"
 
