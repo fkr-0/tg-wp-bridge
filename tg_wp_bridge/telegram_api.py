@@ -123,4 +123,11 @@ async def get_webhook_info() -> TelegramWebhookInfo:
         resp.raise_for_status()
         data = resp.json()
         log.info("Webhook info: %s", data)
-        return TelegramWebhookInfo.model_validate(data)
+
+        if not data.get("ok"):
+            description = data.get("description", "Unknown Telegram error")
+            log.error("getWebhookInfo returned error: %s", description)
+            raise RuntimeError(f"Telegram getWebhookInfo failed: {description}")
+
+        result_data = data.get("result", {})
+        return TelegramWebhookInfo.model_validate(result_data)

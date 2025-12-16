@@ -133,6 +133,9 @@ WP_PUBLISH_STATUS        # publish | draft | pending (default: publish)
 REQUIRED_HASHTAG         # Optional: e.g. "#blog"
                          # If set, only messages containing this hashtag
                          # will be mirrored to WordPress.
+CHAT_TYPE_ALLOWLIST      # Optional: e.g. "channel,supergroup" (default: channel)
+HASHTAG_ALLOWLIST        # Optional comma-separated whitelist (any match)
+HASHTAG_BLOCKLIST        # Optional comma-separated blacklist
 #+END_SRC
 
 Internally, =tg_wp_bridge.config.Settings= is configured with:
@@ -162,14 +165,21 @@ Key parsing helpers in =tg_wp_bridge/message_parser.py=:
 
 The main handler (=handle_telegram_update= in =tg_wp_bridge/app.py=):
 
-1. Ignores non-channel messages.
-2. Reads text, returns early if empty.
-3. If =REQUIRED_HASHTAG= is set, uses =extract_hashtags= and skips messages
-   that don’t contain it.
-4. Builds title via =build_title_from_text=.
-5. Renders content via =text_to_html=.
-6. Optionally uploads the largest attached photo as WordPress media.
-7. Creates a WordPress post using the REST API helpers.
+1. Checks the Telegram chat type against =CHAT_TYPE_ALLOWLIST= (defaults to
+   =channel=).
+2. Extracts text/caption; if there is no text it will proceed as long as
+   supported media (photo/video/animation/document) is present.
+3. Applies hashtag rules: the legacy =REQUIRED_HASHTAG=, plus optional
+   whitelist (=HASHTAG_ALLOWLIST=) and blacklist (=HASHTAG_BLOCKLIST=).
+4. Builds a title via =build_title_from_text= (falls back to "(no title)").
+5. Renders basic HTML via =text_to_html=.
+6. Collects supported media, downloads each file and uploads it to WordPress
+   (images, videos, animations, and general documents).
+7. Embeds the returned WordPress =source_url= in the post body so readers see
+   the original, uncropped asset (images become <img>, videos become
+   <video>, and other files are linked directly).
+8. Creates a WordPress post; the first uploaded media ID becomes
+   =featured_media= when available.
 
 
 * Running Locally (FastAPI only)
@@ -212,7 +222,161 @@ docker compose -f docker-compose.wordpress.yml up -d
 # First-time setup: create admin user + enable Application Passwords
 #+END_SRC
 
-* Telegram Webhook Setup
+* CLI Management Commands
+
+The bridge includes a CLI tool for management operations without requiring the webserver to be running. This is especially useful for initial setup and troubleshooting.
+
+** Installation
+
+The CLI is available after installing the package:
+
+#+BEGIN_SRC bash
+# Development installation
+pip install -e .
+
+# Production installation (if using container)
+# The CLI is already available as 'tg-wp-bridge' inside the container
+#+END_SRC
+
+** Available Commands
+
+*** =webhook-info= - Display current Telegram webhook information
+
+#+BEGIN_SRC bash
+# Display webhook info in table format
+tg-wp-bridge webhook-info
+
+# Display webhook info in JSON format
+tg-wp-bridge webhook-info --format json
+
+# Use custom config file
+tg-wp-bridge --config-file /path/to/.env webhook-info
+#+END_SRC
+
+*** =set-webhook= - Configure Telegram webhook
+
+#+BEGIN_SRC bash
+# Configure webhook (requires PUBLIC_BASE_URL and TELEGRAM_WEBHOOK_SECRET)
+tg-wp-bridge set-webhook
+
+# Dry run - show what would be configured without actually setting it
+tg-wp-bridge set-webhook --dry-run
+
+# Use custom config file
+tg-wp-bridge --config-file /path/to/.env set-webhook
+#+END_SRC
+
+*** =wp-info= - Inspect WordPress API configuration
+
+#+BEGIN_SRC bash
+# Display currently configured WordPress endpoints and defaults
+tg-wp-bridge wp-info
+
+# Use custom config file
+tg-wp-bridge --config-file /path/to/.env wp-info
+#+END_SRC
+
+*** =wp-check= - Verify WordPress reachability and credentials
+
+#+BEGIN_SRC bash
+# Ensure the configured WP base URL is reachable and credentials work
+tg-wp-bridge wp-check
+
+# Use custom config file
+tg-wp-bridge --config-file /path/to/.env wp-check
+#+END_SRC
+
+*** =status= - Display bridge configuration and webhook status
+
+#+BEGIN_SRC bash
+# Show current configuration and webhook status
+tg-wp-bridge status
+
+# Use custom config file
+tg-wp-bridge --config-file /path/to/.env status
+
+# Enable debug logging
+tg-wp-bridge --debug status
+#+END_SRC
+
+*** =startup-check= - Production startup routine
+
+Runs all diagnostic checks, configures the webhook if missing (unless you pass
+=--no-auto-fix-webhook=), and prints a pass/fail summary. Recommended to run at
+container boot or health probes.
+
+#+BEGIN_SRC bash
+# Run full diagnostics and auto-fix missing webhook
+tg-wp-bridge startup-check
+
+# Skip auto-fixing the webhook (diagnostic only)
+tg-wp-bridge startup-check --no-auto-fix-webhook
+#+END_SRC
+
+** Using CLI with Docker
+
+The CLI commands can be executed against a running Docker container:
+
+#+BEGIN_SRC bash
+# Display webhook info
+docker compose exec tg-wp-bridge tg-wp-bridge webhook-info
+
+# Configure webhook
+docker compose exec tg-wp-bridge tg-wp-bridge set-webhook
+
+# Show status
+docker compose exec tg-wp-bridge tg-wp-bridge status
+
+# Dry run webhook setup
+docker compose exec tg-wp-bridge tg-wp-bridge set-webhook --dry-run
+#+END_SRC
+
+** CLI Logging
+
+The CLI provides comprehensive logging:
+
+- INFO: Shows the operations being performed
+- DEBUG: Detailed information (enable with =--debug= flag)
+- Security-sensitive values (tokens, passwords) are masked in logs
+
+Example with debug logging:
+
+#+BEGIN_SRC bash
+tg-wp-bridge --debug set-webhook
+#+END_SRC
+
+This will log the calculated webhook URL, API calls, and responses while keeping sensitive information secure.
+
+** Typical Setup Workflow
+
+1. Configure environment variables or =.env= file
+2. Verify configuration:
+
+#+BEGIN_SRC bash
+tg-wp-bridge status
+#+END_SRC
+
+3. Test webhook configuration (dry run):
+
+#+BEGIN_SRC bash
+tg-wp-bridge set-webhook --dry-run
+#+END_SRC
+
+4. Configure webhook:
+
+#+BEGIN_SRC bash
+tg-wp-bridge set-webhook
+#+END_SRC
+
+5. Verify webhook is set:
+
+#+BEGIN_SRC bash
+tg-wp-bridge webhook-info
+#+END_SRC
+
+All commands can be run without the webserver running, making initial setup straightforward.
+
+* Telegram Webhook Setup (Alternative Method)
 
 Once the bridge is reachable over HTTPS and configured:
 
