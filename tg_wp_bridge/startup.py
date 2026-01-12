@@ -7,16 +7,22 @@ This module provides comprehensive startup validation including:
 - Telegram bot token validation
 - Webhook configuration validation
 - Automatic webhook setup when appropriate
+
+This module supports rich colored output when running in a TTY,
+with automatic fallback to plain text for logs and non-interactive use.
 """
 
 import asyncio
 import httpx
 import logging
-from typing import Dict, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
 from . import telegram_api, wordpress_api
 from .config import settings
+
+if TYPE_CHECKING:
+    from .display import DisplayManager
 
 log = logging.getLogger("tg-wp-bridge.startup")
 
@@ -322,12 +328,16 @@ async def setup_webhook_if_needed() -> bool:
         return False
 
 
-async def run_startup_validation(auto_setup_webhook: bool = True) -> Dict[str, any]:
+async def run_startup_validation(
+    auto_setup_webhook: bool = True,
+    display: Optional["DisplayManager"] = None,
+) -> Dict[str, Any]:
     """
     Run comprehensive startup validation.
 
     Args:
         auto_setup_webhook: If True, automatically configure webhook if needed
+        display: Optional DisplayManager for rich output. If None, uses logging only.
 
     Returns:
         Dict with validation results and status
@@ -335,6 +345,10 @@ async def run_startup_validation(auto_setup_webhook: bool = True) -> Dict[str, a
     log.info("=" * 60)
     log.info("Starting comprehensive validation...")
     log.info("=" * 60)
+
+    # Print rich header if display is provided
+    if display:
+        display.print_header("TG-WP-BRIDGE STARTUP VALIDATION")
 
     validation_results = {
         "environment": {},
@@ -438,20 +452,39 @@ async def run_startup_validation(auto_setup_webhook: bool = True) -> Dict[str, a
 
     log.info("=" * 60)
 
+    # Print rich summary if display is provided
+    if display:
+        # Print validation tables for each component
+        for component, results in validation_results.items():
+            if component == "overall":
+                continue
+            component_name = component.capitalize()
+            display.print_validation_table(component_name, results)
+
+        # Print final summary panel
+        display.print_summary(validation_results)
+
     return validation_results
 
 
-async def validate_and_log_startup(auto_setup_webhook: bool = True) -> None:
+async def validate_and_log_startup(
+    auto_setup_webhook: bool = True,
+    display: Optional["DisplayManager"] = None,
+) -> None:
     """
     Run startup validation and raise exception if critical failures are found.
 
     Args:
         auto_setup_webhook: If True, automatically configure webhook if needed
+        display: Optional DisplayManager for rich output
 
     Raises:
         StartupValidationError: If critical validation failures are found
     """
-    results = await run_startup_validation(auto_setup_webhook)
+    results = await run_startup_validation(
+        auto_setup_webhook=auto_setup_webhook,
+        display=display,
+    )
 
     if results["overall"]["status"] == "failed":
         errors = results["overall"]["errors"]
@@ -461,15 +494,42 @@ async def validate_and_log_startup(auto_setup_webhook: bool = True) -> None:
 
 
 # Utility function to run from sync context
-def run_startup_validation_sync(auto_setup_webhook: bool = True) -> Dict[str, any]:
+def run_startup_validation_sync(
+    auto_setup_webhook: bool = True,
+    display: Optional["DisplayManager"] = None,
+) -> Dict[str, Any]:
     """
     Synchronous wrapper for run_startup_validation.
+
+    Args:
+        auto_setup_webhook: If True, automatically configure webhook if needed
+        display: Optional DisplayManager for rich output
+
+    Returns:
+        Dict with validation results and status
     """
-    return asyncio.run(run_startup_validation(auto_setup_webhook))
+    return asyncio.run(
+        run_startup_validation(
+            auto_setup_webhook=auto_setup_webhook,
+            display=display,
+        )
+    )
 
 
-def validate_and_log_startup_sync(auto_setup_webhook: bool = True) -> None:
+def validate_and_log_startup_sync(
+    auto_setup_webhook: bool = True,
+    display: Optional["DisplayManager"] = None,
+) -> None:
     """
     Synchronous wrapper for validate_and_log_startup.
+
+    Args:
+        auto_setup_webhook: If True, automatically configure webhook if needed
+        display: Optional DisplayManager for rich output
     """
-    asyncio.run(validate_and_log_startup(auto_setup_webhook))
+    asyncio.run(
+        validate_and_log_startup(
+            auto_setup_webhook=auto_setup_webhook,
+            display=display,
+        )
+    )

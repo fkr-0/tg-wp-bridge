@@ -27,7 +27,7 @@ def make_settings(**overrides):
     defaults = dict(
         telegram_bot_token="12345678:abc",  # Updated to pass validation (8+ chars before colon)
         public_base_url="https://example.com",
-        telegram_webhook_secret="secret",
+        telegram_webhook_secret="mysecret",  # Updated to pass validation (8+ chars required)
         required_hashtag=None,
         wp_base_url="https://wordpress.example.com",
         wp_username="writer",
@@ -208,7 +208,9 @@ def test_startup_check_sets_webhook(monkeypatch):
                 mock_ping.return_value = {"name": "Site"}
                 mock_creds.return_value = {"id": 1, "name": "Admin"}
 
-                result = runner.invoke(cli, ["startup-check"])
+                # Use --plain flag to force plain text output for consistent assertions
+                # Note: --plain is a group-level option, must come before the command
+                result = runner.invoke(cli, ["--plain", "startup-check"])
 
     assert result.exit_code == 0
     assert "All validations passed successfully!" in result.output
@@ -255,7 +257,9 @@ def test_startup_check_wp_failure(monkeypatch):
                 mock_ping.side_effect = Exception("down")
                 mock_creds.return_value = {"id": 1}
 
-                result = runner.invoke(cli, ["startup-check"])
+                # Use --plain flag to force plain text output for consistent assertions
+                # Note: --plain is a group-level option, must come before the command
+                result = runner.invoke(cli, ["--plain", "startup-check"])
 
     assert result.exit_code == 1
     assert "Startup check failed" in result.output

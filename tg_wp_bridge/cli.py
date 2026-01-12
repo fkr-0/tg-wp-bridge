@@ -5,6 +5,10 @@ Provides command-line access to:
 - webhook_info: Inspect current Telegram webhook status
 - set_webhook: Configure Telegram webhook
 - status: Display bridge configuration and status
+- startup-check: Run comprehensive startup diagnostics
+
+The CLI supports rich colored output when run in a terminal,
+with automatic fallback to plain text for non-interactive use.
 """
 
 import asyncio
@@ -17,6 +21,7 @@ import click
 from .config import settings, Settings
 from . import wordpress_api
 from . import startup
+from .display import DisplayManager
 from .telegram_api import get_webhook_info, set_webhook
 
 logging.basicConfig(
@@ -32,8 +37,11 @@ log = logging.getLogger("tg-wp-bridge.cli")
     help="Path to environment file with configuration",
 )
 @click.option("--debug", is_flag=True, help="Enable debug logging")
+@click.option("--plain", is_flag=True, help="Force plain text output (no colors)")
 @click.pass_context
-def cli(ctx: click.Context, config_file: Optional[str], debug: bool) -> None:
+def cli(
+    ctx: click.Context, config_file: Optional[str], debug: bool, plain: bool
+) -> None:
     """Telegram-WordPress Bridge CLI management tool."""
     if debug:
         logging.getLogger().setLevel(logging.DEBUG)
@@ -67,9 +75,14 @@ def cli(ctx: click.Context, config_file: Optional[str], debug: bool) -> None:
         f"  telegram_webhook_secret: {'*' * 8 if settings.telegram_webhook_secret else 'None'}"
     )
 
+    # Create display manager for CLI (force rich mode, but allow --plain override)
+    display = DisplayManager(force_rich=True, force_plain=plain)
+
     ctx.ensure_object(dict)
     ctx.obj["config_file"] = config_file
     ctx.obj["debug"] = debug
+    ctx.obj["plain"] = plain
+    ctx.obj["display"] = display
 
 
 @cli.command(name="wp-info")
@@ -254,18 +267,23 @@ def startup_check_cmd(ctx: click.Context, auto_fix_webhook: bool) -> None:
     """Run comprehensive startup diagnostics and optionally fix missing webhook."""
     log.info(f"Running startup check with auto_fix_webhook={auto_fix_webhook}")
 
+    # Get display manager from context (created in cli())
+    display = ctx.obj.get("display", DisplayManager(force_rich=True, force_plain=False))
+
     try:
         results = startup.run_startup_validation_sync(
-            auto_setup_webhook=auto_fix_webhook
+            auto_setup_webhook=auto_fix_webhook,
+            display=display,
         )
 
-        # The logging is already handled by the startup module
         if results["overall"]["status"] == "failed":
             errors = results["overall"]["errors"]
             error_msg = "; ".join(errors)
             raise click.ClickException(f"Startup check failed: {error_msg}")
 
-        click.echo("\n✓ All validations passed successfully!")
+        # Rich display already showed summary, just add newline for CLI
+        if not display.is_rich():
+            click.echo("\n✓ All validations passed successfully!")
 
     except Exception as e:
         log.error(f"Startup check failed: {e}")

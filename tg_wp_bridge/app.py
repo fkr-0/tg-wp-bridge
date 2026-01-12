@@ -29,6 +29,7 @@ from . import startup
 from . import telegram_api
 from . import wordpress_api
 from .config import settings
+from .display import DisplayManager
 from .schemas import TelegramUpdate, WPMediaResponse
 
 # Configure verbose logging from the start
@@ -63,20 +64,38 @@ log.debug(f"  REQUIRED_HASHTAG: {os.getenv('REQUIRED_HASHTAG', 'NOT SET')}")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager with startup validation."""
+    # Create display manager with TTY auto-detection
+    display = DisplayManager()
+
     # Startup phase
-    log.info("=" * 60)
-    log.info("TG-WP-BRIDGE STARTING UP")
-    log.info("=" * 60)
+    if display.is_rich():
+        display.print_header("TG-WP-BRIDGE STARTING UP")
+    else:
+        log.info("=" * 60)
+        log.info("TG-WP-BRIDGE STARTING UP")
+        log.info("=" * 60)
 
     try:
-        # Run comprehensive startup validation
-        await startup.validate_and_log_startup(auto_setup_webhook=True)
-        log.info("✓ Application startup validation completed successfully")
-        log.info("✓ Application is ready to handle requests")
+        # Run comprehensive startup validation with rich output
+        await startup.validate_and_log_startup(
+            auto_setup_webhook=True,
+            display=display,
+        )
+        if display.is_rich():
+            display.print_success("Application ready to handle requests")
+        else:
+            log.info("✓ Application startup validation completed successfully")
+            log.info("✓ Application is ready to handle requests")
     except Exception as e:
-        log.error(f"✗ Startup validation failed: {e}")
-        log.error("Application will continue but may not function properly")
-        # Continue running despite validation failures
+        if display.is_rich():
+            display.print_error(f"Startup validation failed: {e}")
+            display.print_warning(
+                "Application will continue but may not function properly"
+            )
+        else:
+            log.error(f"✗ Startup validation failed: {e}")
+            log.error("Application will continue but may not function properly")
+        # Continue running despite validation failures (graceful degradation)
 
     # Application is running
     yield

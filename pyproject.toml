@@ -4,10 +4,9 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tg-wp-bridge"
-version = "0.1.0"
+version = "0.2.0"
 description = "Minimal Telegram → WordPress bridge (channel posts to blog posts)"
-# readme = "README.org"
-readme = { file = "README.org", content-type = "text/plain" } # eine frechheit diese
+readme = "README.md"
 
 requires-python = ">=3.10"
 authors = [
@@ -20,6 +19,7 @@ dependencies = [
   "pydantic>=2.7.0",
   "pydantic-settings>=2.2.0",
   "click>=8.0.0",
+  "rich>=14.2.0",
 ]
 
 [project.scripts]
