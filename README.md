@@ -33,6 +33,102 @@ Each channel message becomes a WordPress post:
 
 No WordPress plugin required; uses built-in REST API + Application Passwords.
 
+### Message Flow
+
+``` bash
+┌──────────────────┐     ┌──────────────────┐      ┌──────────────┐     ┌────────────────────┐
+│ Telegram Channel │     │ Telegram Bot API │      │ tg-wp-bridge │     │ WordPress REST API │
+└─────────┬────────┘     └─────────┬────────┘      └───────┬──────┘     └──────────┬─────────┘
+          │                        │                       │                       │
+          │ New channel post       │                       │                       │
+          ├───────────────────────►│                       │                       │
+          │                        │                       │                       │
+          │                        │ POST /webhook/{secret}│                       │
+          │                        ├─────────────────────► │                       │
+          │                        │                       │                       │
+          │                        │                       │ Validate webhook secret
+          │                        │                       ├──┐                    │
+          │                        │                       │  │                    │
+          │                        │                       │◄─┘                    │
+          │                        │                       │                       │
+          │                        │                       │ Parse message (text, hashtags, media)
+          │                        │                       ├──┐                    │
+          │                        │                       │  │                    │
+          │                        │                       │◄─┘                    │
+          │                        │                       │                       │
+          │                        │                       │ Filter (chat type, hashtags)
+          │                        │                       ├──┐                    │
+          │                        │                       │  │                    │
+          │                        │                       │◄─┘                    │
+          │                        │                       │                       │
+          │                        │                       │                       │
+          │                        │                       │                       │
+          │                        │                       │                       │
+          │                      ╠═│══════════════════════════════════════════════════╠
+          │                      ║ │                [for Media present]               ║
+          │                      ╠═│══════════════════════════════════════════════════╠
+          │                      ║ │ GET /bot/file (download media)                │  ║
+          │                      ║ │◄──────────────────────┤                       │  ║
+          │                      ║ │                       │                       │  ║
+          │                      ║ │ Media file            │                       │  ║
+          │                      ║ ├┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈►│                       │  ║
+          │                      ║ │                       │                       │  ║
+          │                      ║ │                       │ POST /media (upload)  │  ║
+          │                      ║ │                       ├──────────────────────►│  ║
+          │                      ║ │                       │                       │  ║
+          │                      ║ │                       │ Media ID + URL        │  ║
+          │                      ║ │                       │◄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┤  ║
+          │                      ╠═│══════════════════════════════════════════════════╠
+          │                        │                       │ Generate HTML content │
+          │                        │                       ├──┐                    │
+          │                        │                       │  │                    │
+          │                        │                       │◄─┘                    │
+          │                        │                       │                       │
+          │                        │                       │ POST /posts (create post)
+          │                        │                       ├──────────────────────►│
+          │                        │                       │                       │
+          │                        │                       │ Post ID               │
+          │                        │                       │◄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┤
+          │                        │                       │                       │
+          │                        │ 200 OK                │                       │
+          │                        │◄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┤                       │
+          │                        │                       │                       │
+```
+
+```mermaid
+sequenceDiagram
+    participant TC as Telegram Channel
+    participant TB as Telegram Bot API
+    participant BR as tg-wp-bridge
+    participant WP as WordPress REST API
+
+    TC->>TB: New channel post
+    TB->>BR: POST /webhook/{secret}
+    BR->>BR: Validate webhook secret
+    BR->>BR: Parse message (text, hashtags, media)
+    BR->>BR: Filter (chat type, hashtags)
+
+    alt Media present
+        BR->>TB: GET /bot/file (download media)
+        TB-->>BR: Media file
+        BR->>WP: POST /media (upload)
+        WP-->>BR: Media ID + URL
+    end
+
+    BR->>BR: Generate HTML content
+    BR->>WP: POST /posts (create post)
+    WP-->>BR: Post ID
+    BR-->>TB: 200 OK
+```
+
+## How It Works
+
+1. **Receive**: Telegram bot sends updates to `PUBLIC_BASE_URL/webhook/{SECRET}`
+2. **Filter**: Checks chat type, hashtags (optional), and extracts media
+3. **Process**: Downloads media, uploads to WordPress, generates HTML content
+4. **Publish**: Creates WordPress post with featured media
+
+
 ## Quick Start
 
 ### Installation
@@ -141,12 +237,6 @@ docker compose exec tg-wp-bridge tg-wp-bridge startup-check
 docker compose exec tg-wp-bridge tg-wp-bridge webhook-info
 ```
 
-## How It Works
-
-1. **Receive**: Telegram bot sends updates to `PUBLIC_BASE_URL/webhook/{SECRET}`
-2. **Filter**: Checks chat type, hashtags (optional), and extracts media
-3. **Process**: Downloads media, uploads to WordPress, generates HTML content
-4. **Publish**: Creates WordPress post with featured media
 
 ## Parsing Logic
 
