@@ -33,7 +33,18 @@ class TestHealthEndpoint:
         client = TestClient(app.app)
         response = client.get("/healthz")
         assert response.status_code == 200
-        assert response.json() == {"status": "ok"}
+        assert response.json() == {"status": "ok", "service": "tg-wp-bridge"}
+
+    def test_validation_endpoint_exists(self):
+        """Test validation endpoint returns validation information."""
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app.app)
+        response = client.get("/validation")
+        assert response.status_code == 200
+        assert "status" in response.json()
+        assert "errors" in response.json()
+        assert "details" in response.json()
 
 
 class TestTelegramWebhook:
@@ -465,7 +476,6 @@ class TestHandleTelegramUpdate:
     @pytest.mark.asyncio
     async def test_handle_update_document_link(self):
         """Document uploads become download links."""
-        from tg_wp_bridge.schemas import TgDocument
 
         msg = TgMessage(
             message_id=1,

@@ -14,6 +14,8 @@ Orchestration layer:
 
 import logging
 import mimetypes
+import os
+from contextlib import asynccontextmanager
 from html import escape
 from pathlib import PurePosixPath
 from typing import List, Optional, Tuple
@@ -23,15 +25,65 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
 from . import message_parser
+from . import startup
 from . import telegram_api
 from . import wordpress_api
 from .config import settings
 from .schemas import TelegramUpdate, WPMediaResponse
 
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("tg-wp-bridge.app")
+# Configure verbose logging from the start
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+    ]
+)
 
-app = FastAPI()
+# Set DEBUG logging if environment variable is set
+if os.getenv("LOG_LEVEL", "INFO").upper() == "DEBUG":
+    logging.getLogger().setLevel(logging.DEBUG)
+    logging.getLogger("tg-wp-bridge").setLevel(logging.DEBUG)
+
+log = logging.getLogger("tg-wp-bridge.app")
+log.info("Initializing tg-wp-bridge application...")
+
+# Log environment configuration (without sensitive values)
+log.debug("Environment configuration:")
+log.debug(f"  LOG_LEVEL: {os.getenv('LOG_LEVEL', 'INFO')}")
+log.debug(f"  TELEGRAM_BOT_TOKEN: {'***SET***' if os.getenv('TELEGRAM_BOT_TOKEN') else 'NOT SET'}")
+log.debug(f"  PUBLIC_BASE_URL: {os.getenv('PUBLIC_BASE_URL', 'NOT SET')}")
+log.debug(f"  WP_BASE_URL: {os.getenv('WP_BASE_URL', 'NOT SET')}")
+log.debug(f"  WP_USERNAME: {os.getenv('WP_USERNAME', 'NOT SET')}")
+log.debug(f"  REQUIRED_HASHTAG: {os.getenv('REQUIRED_HASHTAG', 'NOT SET')}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager with startup validation."""
+    # Startup phase
+    log.info("=" * 60)
+    log.info("TG-WP-BRIDGE STARTING UP")
+    log.info("=" * 60)
+    
+    try:
+        # Run comprehensive startup validation
+        await startup.validate_and_log_startup(auto_setup_webhook=True)
+        log.info("✓ Application startup validation completed successfully")
+        log.info("✓ Application is ready to handle requests")
+    except Exception as e:
+        log.error(f"✗ Startup validation failed: {e}")
+        log.error("Application will continue but may not function properly")
+        # Continue running despite validation failures
+    
+    # Application is running
+    yield
+    
+    # Shutdown phase
+    log.info("Application shutting down...")
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +294,36 @@ async def telegram_webhook(secret: str, update: TelegramUpdate):
 
 @app.get("/healthz")
 async def healthz():
-    return {"status": "ok"}
+    """
+    Health check endpoint.
+    
+    Returns basic status information. For detailed validation status,
+    use the /validation endpoint.
+    """
+    return {"status": "ok", "service": "tg-wp-bridge"}
+
+
+@app.get("/validation")
+async def validation_status():
+    """
+    Return the current validation status of all components.
+    
+    This endpoint runs a quick validation check without modifying
+    any configuration (no automatic webhook setup).
+    """
+    try:
+        results = await startup.run_startup_validation(auto_setup_webhook=False)
+        return {
+            "status": results["overall"]["status"],
+            "errors": results["overall"]["errors"],
+            "details": results
+        }
+    except Exception as e:
+        return {
+            "status": "failed",
+            "errors": [str(e)],
+            "details": None
+        }
 
 
 @app.post("/telegram/set_webhook")

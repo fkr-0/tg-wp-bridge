@@ -2,21 +2,36 @@
 
 from types import SimpleNamespace
 from click.testing import CliRunner
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from tg_wp_bridge.cli import cli
 from tg_wp_bridge.schemas import TelegramWebhookInfo
 
 
+class MockAsyncClient:
+    """Mock httpx.AsyncClient for testing."""
+
+    def __init__(self, mock_response):
+        self.get = AsyncMock(return_value=mock_response)
+        self.post = AsyncMock(return_value=mock_response)
+        self._mock_response = mock_response
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return None
+
+
 def make_settings(**overrides):
     defaults = dict(
-        telegram_bot_token="123:abc",
+        telegram_bot_token="12345678:abc",  # Updated to pass validation (8+ chars before colon)
         public_base_url="https://example.com",
         telegram_webhook_secret="secret",
         required_hashtag=None,
         wp_base_url="https://wordpress.example.com",
         wp_username="writer",
-        wp_app_password="pass",
+        wp_app_password="passwordwordpassword",  # Updated to pass validation (20+ chars)
         wp_category_id=1,
         wp_publish_status="publish",
     )
@@ -34,7 +49,9 @@ def test_webhook_info_table_output(monkeypatch):
         ip_address=None,
     )
 
-    with patch("tg_wp_bridge.cli.get_webhook_info", new_callable=AsyncMock) as mock_info:
+    with patch(
+        "tg_wp_bridge.cli.get_webhook_info", new_callable=AsyncMock
+    ) as mock_info:
         mock_info.return_value = info
         result = runner.invoke(cli, ["webhook-info"])
 
@@ -60,9 +77,7 @@ def test_set_webhook_success(monkeypatch):
     dummy_settings = make_settings()
 
     with patch("tg_wp_bridge.cli.settings", dummy_settings):
-        with patch(
-            "tg_wp_bridge.cli.set_webhook", new_callable=AsyncMock
-        ) as mock_set:
+        with patch("tg_wp_bridge.cli.set_webhook", new_callable=AsyncMock) as mock_set:
             mock_set.return_value = {
                 "ok": True,
                 "result": True,
@@ -80,9 +95,7 @@ def test_set_webhook_reports_failure(monkeypatch):
     dummy_settings = make_settings()
 
     with patch("tg_wp_bridge.cli.settings", dummy_settings):
-        with patch(
-            "tg_wp_bridge.cli.set_webhook", new_callable=AsyncMock
-        ) as mock_set:
+        with patch("tg_wp_bridge.cli.set_webhook", new_callable=AsyncMock) as mock_set:
             mock_set.return_value = {"ok": False, "description": "bad"}
             result = runner.invoke(cli, ["set-webhook"])
 
@@ -154,30 +167,51 @@ def test_startup_check_sets_webhook(monkeypatch):
     dummy_settings = make_settings()
 
     with patch("tg_wp_bridge.cli.settings", dummy_settings):
-        with (
-            patch("tg_wp_bridge.cli.get_webhook_info", new_callable=AsyncMock) as mock_info,
-            patch("tg_wp_bridge.cli.set_webhook", new_callable=AsyncMock) as mock_set,
-            patch(
-                "tg_wp_bridge.cli.wordpress_api.ping_wp_api", new_callable=AsyncMock
-            ) as mock_ping,
-            patch(
-                "tg_wp_bridge.cli.wordpress_api.check_wp_credentials",
-                new_callable=AsyncMock,
-            ) as mock_creds,
-        ):
-            mock_info.side_effect = [
-                TelegramWebhookInfo(url=None),
-                TelegramWebhookInfo(url="https://example.com/webhook"),
-            ]
-            mock_set.return_value = {"ok": True, "result": True}
-            mock_ping.return_value = {"name": "Site"}
-            mock_creds.return_value = {"id": 1, "name": "Admin"}
+        with patch(
+            "tg_wp_bridge.startup.settings", dummy_settings
+        ):  # Also patch startup module
+            with (
+                patch(
+                    "tg_wp_bridge.telegram_api.get_webhook_info", new_callable=AsyncMock
+                ) as mock_info,
+                patch(
+                    "tg_wp_bridge.telegram_api.set_webhook", new_callable=AsyncMock
+                ) as mock_set,
+                patch(
+                    "tg_wp_bridge.wordpress_api.ping_wp_api", new_callable=AsyncMock
+                ) as mock_ping,
+                patch(
+                    "tg_wp_bridge.wordpress_api.check_wp_credentials",
+                    new_callable=AsyncMock,
+                ) as mock_creds,
+                patch(
+                    "tg_wp_bridge.startup.httpx.AsyncClient", return_value=None
+                ) as mock_client,
+            ):
+                # Mock the telegram API getMe call - create proper async context manager
+                # Note: raise_for_status() and json() are synchronous methods in httpx
+                mock_response = MagicMock()
+                mock_response.json = MagicMock(
+                    return_value={
+                        "ok": True,
+                        "result": {"username": "testbot", "first_name": "Test Bot"},
+                    }
+                )
+                # Set the return_value after patch since we need to reference mock_response
+                mock_client.return_value = MockAsyncClient(mock_response)
 
-            result = runner.invoke(cli, ["startup-check"])
+                mock_info.side_effect = [
+                    TelegramWebhookInfo(url=None),
+                    TelegramWebhookInfo(url="https://example.com/webhook"),
+                ]
+                mock_set.return_value = {"ok": True, "result": True}
+                mock_ping.return_value = {"name": "Site"}
+                mock_creds.return_value = {"id": 1, "name": "Admin"}
+
+                result = runner.invoke(cli, ["startup-check"])
 
     assert result.exit_code == 0
-    assert "Webhook configured successfully" in result.output
-    assert "Startup summary" in result.output
+    assert "All validations passed successfully!" in result.output
 
 
 def test_startup_check_wp_failure(monkeypatch):
@@ -185,21 +219,43 @@ def test_startup_check_wp_failure(monkeypatch):
     dummy_settings = make_settings()
 
     with patch("tg_wp_bridge.cli.settings", dummy_settings):
-        with (
-            patch("tg_wp_bridge.cli.get_webhook_info", new_callable=AsyncMock) as mock_info,
-            patch(
-                "tg_wp_bridge.cli.wordpress_api.ping_wp_api", new_callable=AsyncMock
-            ) as mock_ping,
-            patch(
-                "tg_wp_bridge.cli.wordpress_api.check_wp_credentials",
-                new_callable=AsyncMock,
-            ) as mock_creds,
-        ):
-            mock_info.return_value = TelegramWebhookInfo(url="https://example.com/webhook")
-            mock_ping.side_effect = Exception("down")
-            mock_creds.return_value = {"id": 1}
+        with patch(
+            "tg_wp_bridge.startup.settings", dummy_settings
+        ):  # Also patch startup module
+            with (
+                patch(
+                    "tg_wp_bridge.telegram_api.get_webhook_info", new_callable=AsyncMock
+                ) as mock_info,
+                patch(
+                    "tg_wp_bridge.wordpress_api.ping_wp_api", new_callable=AsyncMock
+                ) as mock_ping,
+                patch(
+                    "tg_wp_bridge.wordpress_api.check_wp_credentials",
+                    new_callable=AsyncMock,
+                ) as mock_creds,
+                patch(
+                    "tg_wp_bridge.startup.httpx.AsyncClient", return_value=None
+                ) as mock_client,
+            ):
+                # Mock the telegram API getMe call - create proper async context manager
+                # Note: raise_for_status() and json() are synchronous methods in httpx
+                mock_response = MagicMock()
+                mock_response.json = MagicMock(
+                    return_value={
+                        "ok": True,
+                        "result": {"username": "testbot", "first_name": "Test Bot"},
+                    }
+                )
+                # Set the return_value after patch since we need to reference mock_response
+                mock_client.return_value = MockAsyncClient(mock_response)
 
-            result = runner.invoke(cli, ["startup-check"])
+                mock_info.return_value = TelegramWebhookInfo(
+                    url="https://example.com/webhook"
+                )
+                mock_ping.side_effect = Exception("down")
+                mock_creds.return_value = {"id": 1}
+
+                result = runner.invoke(cli, ["startup-check"])
 
     assert result.exit_code == 1
-    assert "Startup check reported failures" in result.output
+    assert "Startup check failed" in result.output

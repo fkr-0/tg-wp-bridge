@@ -10,13 +10,13 @@ Provides command-line access to:
 import asyncio
 import json
 import logging
-import sys
 from typing import Optional
 
 import click
 
 from .config import settings, Settings
 from . import wordpress_api
+from . import startup
 from .telegram_api import get_webhook_info, set_webhook
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -226,90 +226,25 @@ def set_webhook_cmd(ctx: click.Context, dry_run: bool) -> None:
 )
 @click.pass_context
 def startup_check_cmd(ctx: click.Context, auto_fix_webhook: bool) -> None:
-    """Run startup diagnostics and optionally fix missing webhook."""
-
-    async def _run():
-        click.echo("Running startup checks…")
-
-        bot_token_ok = bool(settings.telegram_bot_token)
-        click.echo(f"Bot token configured: {'✓' if bot_token_ok else '✗'}")
-
-        webhook_configured = False
-        webhook_error: Optional[str] = None
-        webhook_url: Optional[str] = None
-
-        if bot_token_ok:
-            try:
-                info = await get_webhook_info()
-                webhook_url = info.url
-                webhook_configured = bool(info.url)
-                if webhook_configured:
-                    click.echo(f"Webhook configured: ✓ ({info.url})")
-                else:
-                    click.echo("Webhook configured: ✗")
-                    if auto_fix_webhook:
-                        click.echo("Attempting to configure webhook…")
-                        result = await set_webhook()
-                        if result.get("ok"):
-                            refreshed = await get_webhook_info()
-                            webhook_url = refreshed.url
-                            webhook_configured = bool(refreshed.url)
-                            click.echo(
-                                f"Webhook configured successfully at {webhook_url or 'unknown URL'}"
-                            )
-                        else:
-                            webhook_error = result.get("description", "Unknown error")
-                            click.echo(
-                                f"Webhook configuration failed: {webhook_error}", err=True
-                            )
-            except Exception as exc:  # pragma: no cover - logging path
-                webhook_error = str(exc)
-                click.echo(f"Webhook check failed: {exc}", err=True)
-        else:
-            webhook_error = "Bot token missing"
-
-        # WordPress ping and credential checks
-        wp_reachable = False
-        wp_creds_ok = False
-        wp_ping_error: Optional[str] = None
-        wp_creds_error: Optional[str] = None
-
-        try:
-            ping_info = await wordpress_api.ping_wp_api()
-            wp_reachable = True
-            click.echo(f"WordPress reachable: ✓ ({ping_info.get('name', 'Unknown')})")
-        except Exception as exc:  # pragma: no cover - logging path
-            wp_ping_error = str(exc)
-            click.echo(f"WordPress reachable: ✗ ({exc})", err=True)
-
-        if wp_reachable:
-            try:
-                creds_info = await wordpress_api.check_wp_credentials()
-                wp_creds_ok = True
-                click.echo(
-                    "WordPress credentials: ✓ (user="
-                    f"{creds_info.get('name', 'unknown')} id={creds_info.get('id')})"
-                )
-            except Exception as exc:  # pragma: no cover - logging path
-                wp_creds_error = str(exc)
-                click.echo(f"WordPress credentials: ✗ ({exc})", err=True)
-
-        click.echo("\nStartup summary:")
-        click.echo(f"  Bot token configured: {'✓' if bot_token_ok else '✗'}")
-        click.echo(f"  Webhook configured: {'✓' if webhook_configured else '✗'}")
-        if webhook_error and not webhook_configured:
-            click.echo(f"  Webhook error: {webhook_error}")
-        click.echo(f"  WordPress reachable: {'✓' if wp_reachable else '✗'}")
-        if wp_ping_error and not wp_reachable:
-            click.echo(f"  WordPress ping error: {wp_ping_error}")
-        click.echo(f"  WordPress credentials: {'✓' if wp_creds_ok else '✗'}")
-        if wp_creds_error and not wp_creds_ok:
-            click.echo(f"  WordPress credential error: {wp_creds_error}")
-
-        if not (bot_token_ok and webhook_configured and wp_reachable and wp_creds_ok):
-            raise click.ClickException("Startup check reported failures")
-
-    asyncio.run(_run())
+    """Run comprehensive startup diagnostics and optionally fix missing webhook."""
+    log.info(f"Running startup check with auto_fix_webhook={auto_fix_webhook}")
+    
+    try:
+        results = startup.run_startup_validation_sync(auto_setup_webhook=auto_fix_webhook)
+        
+        # The logging is already handled by the startup module
+        if results["overall"]["status"] == "failed":
+            errors = results["overall"]["errors"]
+            error_msg = "; ".join(errors)
+            raise click.ClickException(f"Startup check failed: {error_msg}")
+        
+        click.echo("\n✓ All validations passed successfully!")
+            
+    except Exception as e:
+        log.error(f"Startup check failed: {e}")
+        if isinstance(e, click.ClickException):
+            raise
+        raise click.ClickException(f"Startup check failed: {e}")
 
 
 @cli.command()
@@ -373,7 +308,7 @@ def status(ctx: click.Context) -> None:
                 status_indicator = "✓ Active" if not info.last_error_message else "⚠ Active with errors"
                 click.echo(f"  Status: {status_indicator}")
             else:
-                click.echo(f"  Status: ✗ Not configured")
+                click.echo("  Status: ✗ Not configured")
             
             if info.last_error_message:
                 click.echo(f"  Last error: {info.last_error_message}")
