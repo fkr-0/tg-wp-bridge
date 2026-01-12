@@ -10,7 +10,7 @@ RUN mkdir -p /app && pip install --no-cache-dir fastapi uvicorn[standard] httpx 
 # Copy package
 COPY tg_wp_bridge /app/tg_wp_bridge
 COPY pyproject.toml /app/pyproject.toml
-COPY README.org /app/README.org
+COPY README.md /app/README.md
 
 # Install the package to make CLI available
 RUN cd /app && pip install -e .
