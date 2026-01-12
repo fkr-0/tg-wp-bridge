@@ -103,4 +103,4 @@ def test_settings_loads_from_dotenv(tmp_path, monkeypatch):
             extra="ignore",
         )
 
-    s = TestSettings()
+    TestSettings()

@@ -19,7 +19,9 @@ from . import wordpress_api
 from . import startup
 from .telegram_api import get_webhook_info, set_webhook
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 log = logging.getLogger("tg-wp-bridge.cli")
 
 
@@ -36,30 +38,35 @@ def cli(ctx: click.Context, config_file: Optional[str], debug: bool) -> None:
     if debug:
         logging.getLogger().setLevel(logging.DEBUG)
         log.debug("Debug mode enabled")
-    
+
     # Load configuration from specified file if provided
     if config_file:
         log.info(f"Loading configuration from: {config_file}")
         from pydantic_settings import SettingsConfigDict
-        
+
         class LocalSettings(Settings):
             model_config = SettingsConfigDict(
                 env_file=config_file,
                 env_file_encoding="utf-8",
                 extra="ignore",
             )
-        
+
         # Replace global settings for this CLI session
         import tg_wp_bridge.config as config_module
+
         config_module.settings = LocalSettings()
         log.debug("Configuration loaded from custom file")
-    
+
     # Log key configuration values (in debug mode only for security)
     log.debug("Configuration loaded:")
-    log.debug(f"  telegram_bot_token: {'*' * 10 if settings.telegram_bot_token else 'None'}")
+    log.debug(
+        f"  telegram_bot_token: {'*' * 10 if settings.telegram_bot_token else 'None'}"
+    )
     log.debug(f"  public_base_url: {settings.public_base_url}")
-    log.debug(f"  telegram_webhook_secret: {'*' * 8 if settings.telegram_webhook_secret else 'None'}")
-    
+    log.debug(
+        f"  telegram_webhook_secret: {'*' * 8 if settings.telegram_webhook_secret else 'None'}"
+    )
+
     ctx.ensure_object(dict)
     ctx.obj["config_file"] = config_file
     ctx.obj["debug"] = debug
@@ -111,7 +118,9 @@ def wp_check_cmd(ctx: click.Context) -> None:
             click.echo(f"  Name: {ping_info.get('name', 'Unknown')}")
         except Exception as exc:  # pragma: no cover - logging path
             ping_error = str(exc)
-            log.error("WordPress ping failed: %s", exc, exc_info=ctx.obj.get("debug", False))
+            log.error(
+                "WordPress ping failed: %s", exc, exc_info=ctx.obj.get("debug", False)
+            )
             click.echo(f"✗ WordPress ping failed: {exc}", err=True)
 
         try:
@@ -123,7 +132,11 @@ def wp_check_cmd(ctx: click.Context) -> None:
             )
         except Exception as exc:  # pragma: no cover - logging path
             cred_error = str(exc)
-            log.error("WordPress credential check failed: %s", exc, exc_info=ctx.obj.get("debug", False))
+            log.error(
+                "WordPress credential check failed: %s",
+                exc,
+                exc_info=ctx.obj.get("debug", False),
+            )
             click.echo(f"✗ WordPress credential check failed: {exc}", err=True)
 
         if not (ping_ok and cred_ok):
@@ -136,18 +149,24 @@ def wp_check_cmd(ctx: click.Context) -> None:
 
 
 @cli.command(name="webhook-info")
-@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="table", help="Output format")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["json", "table"]),
+    default="table",
+    help="Output format",
+)
 @click.pass_context
 def webhook_info(ctx: click.Context, output_format: str) -> None:
     """Display current Telegram webhook information."""
     log.info("Getting webhook information")
-    
+
     async def _get_webhook_info():
         try:
             log.debug("Calling get_webhook_info()")
             info = await get_webhook_info()
             log.debug(f"Webhook info received: {info.model_dump()}")
-            
+
             if output_format == "json":
                 click.echo(json.dumps(info.model_dump(), indent=2))
             else:
@@ -159,43 +178,47 @@ def webhook_info(ctx: click.Context, output_format: str) -> None:
                 click.echo(f"  Last error date: {info.last_error_date or 'None'}")
                 click.echo(f"  Last error message: {info.last_error_message or 'None'}")
                 click.echo(f"  IP address: {info.ip_address or 'Not set'}")
-            
+
             log.info("Webhook information retrieved successfully")
-                
+
         except Exception as e:
-            log.error(f"Error getting webhook info: {e}", exc_info=ctx.obj.get("debug", False))
+            log.error(
+                f"Error getting webhook info: {e}", exc_info=ctx.obj.get("debug", False)
+            )
             click.echo(f"Error getting webhook info: {e}", err=True)
             raise click.ClickException(f"Failed to get webhook info: {e}")
-    
+
     asyncio.run(_get_webhook_info())
 
 
 @cli.command(name="set-webhook")
-@click.option("--dry-run", is_flag=True, help="Show what would be set without actually setting it")
+@click.option(
+    "--dry-run", is_flag=True, help="Show what would be set without actually setting it"
+)
 @click.pass_context
 def set_webhook_cmd(ctx: click.Context, dry_run: bool) -> None:
     """Configure Telegram webhook for this bridge."""
     log.info(f"Setting webhook (dry_run={dry_run})")
-    
+
     async def _set_webhook():
         try:
             webhook_url = (
                 f"{settings.public_base_url}/webhook/{settings.telegram_webhook_secret}"
             )
-            
+
             log.info(f"Calculated webhook URL: {webhook_url}")
-            
+
             if dry_run:
                 click.echo(f"Would set webhook to: {webhook_url}")
                 log.info("Dry run completed - no actual webhook set")
                 return
-            
+
             log.info("Proceeding with webhook configuration")
             click.echo(f"Setting webhook to: {webhook_url}")
-            
+
             result = await set_webhook()
             log.debug(f"set_webhook() result: {result}")
-            
+
             if result.get("ok"):
                 click.echo("✓ Webhook configured successfully")
                 click.echo(f"  URL: {webhook_url}")
@@ -205,16 +228,18 @@ def set_webhook_cmd(ctx: click.Context, dry_run: bool) -> None:
                 log.info("Webhook configured successfully")
             else:
                 click.echo("✗ Failed to configure webhook", err=True)
-                error_msg = result.get('description', 'Unknown error')
+                error_msg = result.get("description", "Unknown error")
                 click.echo(f"  Error: {error_msg}", err=True)
                 log.error(f"Webhook configuration failed: {error_msg}")
                 raise click.ClickException("Webhook configuration failed")
-                
+
         except Exception as e:
-            log.error(f"Error setting webhook: {e}", exc_info=ctx.obj.get("debug", False))
+            log.error(
+                f"Error setting webhook: {e}", exc_info=ctx.obj.get("debug", False)
+            )
             click.echo(f"Error setting webhook: {e}", err=True)
             raise click.ClickException(f"Failed to set webhook: {e}")
-    
+
     asyncio.run(_set_webhook())
 
 
@@ -228,18 +253,20 @@ def set_webhook_cmd(ctx: click.Context, dry_run: bool) -> None:
 def startup_check_cmd(ctx: click.Context, auto_fix_webhook: bool) -> None:
     """Run comprehensive startup diagnostics and optionally fix missing webhook."""
     log.info(f"Running startup check with auto_fix_webhook={auto_fix_webhook}")
-    
+
     try:
-        results = startup.run_startup_validation_sync(auto_setup_webhook=auto_fix_webhook)
-        
+        results = startup.run_startup_validation_sync(
+            auto_setup_webhook=auto_fix_webhook
+        )
+
         # The logging is already handled by the startup module
         if results["overall"]["status"] == "failed":
             errors = results["overall"]["errors"]
             error_msg = "; ".join(errors)
             raise click.ClickException(f"Startup check failed: {error_msg}")
-        
+
         click.echo("\n✓ All validations passed successfully!")
-            
+
     except Exception as e:
         log.error(f"Startup check failed: {e}")
         if isinstance(e, click.ClickException):
@@ -252,49 +279,55 @@ def startup_check_cmd(ctx: click.Context, auto_fix_webhook: bool) -> None:
 def status(ctx: click.Context) -> None:
     """Display bridge configuration and current status."""
     log.info("Displaying bridge status")
-    
+
     click.echo("Telegram-WordPress Bridge Status:")
     click.echo()
-    
+
     # Configuration section
     click.echo("Configuration:")
     bot_token_status = "✓" if settings.telegram_bot_token else "✗"
     click.echo(f"  Bot token configured: {bot_token_status}")
-    
+
     click.echo(f"  Public base URL: {settings.public_base_url or 'Not configured'}")
-    
+
     webhook_secret_status = "✓" if settings.telegram_webhook_secret else "✗"
     click.echo(f"  Webhook secret configured: {webhook_secret_status}")
-    
+
     click.echo(f"  Required hashtag: {settings.required_hashtag or 'None'}")
-    
+
     # WordPress section
-    wp_base = getattr(settings, 'wp_base_url', None)
+    wp_base = getattr(settings, "wp_base_url", None)
     if wp_base:
         click.echo(f"  WordPress base URL: {wp_base}")
     else:
         click.echo("  WordPress base URL: Not configured")
-    
-    wp_username = getattr(settings, 'wp_username', None)
+
+    wp_username = getattr(settings, "wp_username", None)
     if wp_username:
         click.echo(f"  WordPress username: {wp_username}")
     else:
         click.echo("  WordPress username: Not configured")
-        
-    wp_password = getattr(settings, 'wp_app_password', None)
+
+    wp_password = getattr(settings, "wp_app_password", None)
     wp_password_status = "✓" if wp_password else "✗"
     click.echo(f"  WordPress password configured: {wp_password_status}")
     click.echo(f"  WordPress category ID: {getattr(settings, 'wp_category_id', 0)}")
-    click.echo(f"  WordPress publish status: {getattr(settings, 'wp_publish_status', 'publish')}")
-    
+    click.echo(
+        f"  WordPress publish status: {getattr(settings, 'wp_publish_status', 'publish')}"
+    )
+
     # Log configuration status
     log.info("Configuration check completed")
-    log.debug(f"Bot token: {'configured' if settings.telegram_bot_token else 'not configured'}")
+    log.debug(
+        f"Bot token: {'configured' if settings.telegram_bot_token else 'not configured'}"
+    )
     log.debug(f"Public base URL: {settings.public_base_url}")
-    log.debug(f"Webhook secret: {'configured' if settings.telegram_webhook_secret else 'not configured'}")
+    log.debug(
+        f"Webhook secret: {'configured' if settings.telegram_webhook_secret else 'not configured'}"
+    )
     log.debug(f"WordPress base URL: {wp_base}")
     log.debug(f"WordPress username: {wp_username}")
-    
+
     # Check webhook status
     async def _check_webhook():
         try:
@@ -303,25 +336,32 @@ def status(ctx: click.Context) -> None:
             click.echo()
             click.echo("Webhook Status:")
             click.echo(f"  Configured URL: {info.url or 'Not set'}")
-            
+
             if info.url:
-                status_indicator = "✓ Active" if not info.last_error_message else "⚠ Active with errors"
+                status_indicator = (
+                    "✓ Active"
+                    if not info.last_error_message
+                    else "⚠ Active with errors"
+                )
                 click.echo(f"  Status: {status_indicator}")
             else:
                 click.echo("  Status: ✗ Not configured")
-            
+
             if info.last_error_message:
                 click.echo(f"  Last error: {info.last_error_message}")
                 log.warning(f"Webhook last error: {info.last_error_message}")
-            
+
             log.info("Webhook status check completed")
-                
+
         except Exception as e:
             click.echo()
             click.echo("Webhook Status:")
             click.echo(f"  Error checking status: {e}")
-            log.error(f"Error checking webhook status: {e}", exc_info=ctx.obj.get("debug", False))
-    
+            log.error(
+                f"Error checking webhook status: {e}",
+                exc_info=ctx.obj.get("debug", False),
+            )
+
     asyncio.run(_check_webhook())
 
 

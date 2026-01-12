@@ -12,7 +12,8 @@ help:
 	@echo "  test-html        Run tests with HTML coverage report"
 	@echo "  build            Build the project package"
 	@echo "  lint             Run linting with ruff"
-	@echo "  lintfix             Run linting with ruff"
+	@echo "  lintfix          Run linting with ruff"
+	@echo "  lintfix-unsafe   Run linting with ruff with unsafe fixes"
 	@echo "  format           Format code with ruff"
 	@echo "  typecheck        Run type checking with mypy"
 	@echo "  check            Run all checks (lint, format, typecheck)"
@@ -49,6 +50,9 @@ lint:
 
 lintfix:
 	uv run ruff check tg_wp_bridge tests --fix
+
+lintfix-unsafe:
+	uv run ruff check tg_wp_bridge tests --fix --unsafe-fixes
 
 format:
 	uv run ruff format tg_wp_bridge tests

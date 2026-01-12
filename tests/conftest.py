@@ -127,7 +127,6 @@ def clean_settings(monkeypatch):
     from pydantic_settings import SettingsConfigDict
 
     # Temporarily disable .env file loading for tests
-    original_model_config = config_module.Settings.model_config
     test_config = SettingsConfigDict(
         env_file=None,  # No .env file loading
         env_file_encoding="utf-8",
@@ -177,7 +176,6 @@ def pure_defaults_only(monkeypatch):
     # Temporarily disable .env file loading for tests
     from pydantic_settings import SettingsConfigDict
 
-    original_model_config = config_module.Settings.model_config
     test_config = SettingsConfigDict(
         env_file=None,  # No .env file loading
         env_file_encoding="utf-8",

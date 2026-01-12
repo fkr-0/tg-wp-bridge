@@ -296,7 +296,9 @@ def test_collect_supported_media_document_only():
         message_id=3,
         chat=TgChat(id=1, type="channel"),
         text="",
-        document=TgDocument(file_id="doc1", file_name="file.pdf", mime_type="application/pdf"),
+        document=TgDocument(
+            file_id="doc1", file_name="file.pdf", mime_type="application/pdf"
+        ),
     )
     media = message_parser.collect_supported_media(msg)
     assert len(media) == 1

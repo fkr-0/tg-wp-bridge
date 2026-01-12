@@ -34,10 +34,10 @@ from .schemas import TelegramUpdate, WPMediaResponse
 # Configure verbose logging from the start
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),
-    ]
+    ],
 )
 
 # Set DEBUG logging if environment variable is set
@@ -51,7 +51,9 @@ log.info("Initializing tg-wp-bridge application...")
 # Log environment configuration (without sensitive values)
 log.debug("Environment configuration:")
 log.debug(f"  LOG_LEVEL: {os.getenv('LOG_LEVEL', 'INFO')}")
-log.debug(f"  TELEGRAM_BOT_TOKEN: {'***SET***' if os.getenv('TELEGRAM_BOT_TOKEN') else 'NOT SET'}")
+log.debug(
+    f"  TELEGRAM_BOT_TOKEN: {'***SET***' if os.getenv('TELEGRAM_BOT_TOKEN') else 'NOT SET'}"
+)
 log.debug(f"  PUBLIC_BASE_URL: {os.getenv('PUBLIC_BASE_URL', 'NOT SET')}")
 log.debug(f"  WP_BASE_URL: {os.getenv('WP_BASE_URL', 'NOT SET')}")
 log.debug(f"  WP_USERNAME: {os.getenv('WP_USERNAME', 'NOT SET')}")
@@ -65,7 +67,7 @@ async def lifespan(app: FastAPI):
     log.info("=" * 60)
     log.info("TG-WP-BRIDGE STARTING UP")
     log.info("=" * 60)
-    
+
     try:
         # Run comprehensive startup validation
         await startup.validate_and_log_startup(auto_setup_webhook=True)
@@ -75,10 +77,10 @@ async def lifespan(app: FastAPI):
         log.error(f"✗ Startup validation failed: {e}")
         log.error("Application will continue but may not function properly")
         # Continue running despite validation failures
-    
+
     # Application is running
     yield
-    
+
     # Shutdown phase
     log.info("Application shutting down...")
 
@@ -138,7 +140,7 @@ async def _download_and_upload_media(
 
 
 def _build_media_gallery(
-    uploaded: List[Tuple[message_parser.TelegramMedia, WPMediaResponse]]
+    uploaded: List[Tuple[message_parser.TelegramMedia, WPMediaResponse]],
 ) -> str:
     sections: List[str] = []
     for descriptor, wp_media in uploaded:
@@ -156,7 +158,7 @@ def _build_media_gallery(
             sections.append(
                 (
                     f'<figure class="telegram-media telegram-{descriptor.media_type}">'
-                    f'<video controls src="{safe_url}">' 
+                    f'<video controls src="{safe_url}">'
                     f'<a href="{safe_url}">Download media</a></video></figure>'
                 )
             )
@@ -296,7 +298,7 @@ async def telegram_webhook(secret: str, update: TelegramUpdate):
 async def healthz():
     """
     Health check endpoint.
-    
+
     Returns basic status information. For detailed validation status,
     use the /validation endpoint.
     """
@@ -307,7 +309,7 @@ async def healthz():
 async def validation_status():
     """
     Return the current validation status of all components.
-    
+
     This endpoint runs a quick validation check without modifying
     any configuration (no automatic webhook setup).
     """
@@ -316,14 +318,10 @@ async def validation_status():
         return {
             "status": results["overall"]["status"],
             "errors": results["overall"]["errors"],
-            "details": results
+            "details": results,
         }
     except Exception as e:
-        return {
-            "status": "failed",
-            "errors": [str(e)],
-            "details": None
-        }
+        return {"status": "failed", "errors": [str(e)], "details": None}
 
 
 @app.post("/telegram/set_webhook")

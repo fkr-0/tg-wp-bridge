@@ -226,5 +226,7 @@ class TestModelExtraBehavior:
         assert post.extra_field == "extra"
 
         # TelegramWebhookInfo
-        webhook_info = TelegramWebhookInfo(url="https://example.com", extra_field="extra")
+        webhook_info = TelegramWebhookInfo(
+            url="https://example.com", extra_field="extra"
+        )
         assert webhook_info.extra_field == "extra"

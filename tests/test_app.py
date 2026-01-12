@@ -338,7 +338,9 @@ class TestHandleTelegramUpdate:
         ):
             mock_url.return_value = "https://api.telegram.org/file/bottoken/photo.jpg"
             mock_download.return_value = b"fake image data"
-            mock_upload.return_value = make_wp_media(456, "https://example.com/photo.jpg")
+            mock_upload.return_value = make_wp_media(
+                456, "https://example.com/photo.jpg"
+            )
             mock_post = MagicMock()
             mock_post.id = 789
             mock_post.link = "https://example.com/post/789"
@@ -355,7 +357,9 @@ class TestHandleTelegramUpdate:
             # Verify media ID is passed to create post
             call_args = mock_create.call_args[1]
             assert call_args["media_ids"] == [456]
-            assert '<img src="https://example.com/photo.jpg"' in call_args["content_html"]
+            assert (
+                '<img src="https://example.com/photo.jpg"' in call_args["content_html"]
+            )
 
     @pytest.mark.asyncio
     async def test_handle_update_photo_error_continues(self, monkeypatch):
@@ -427,13 +431,17 @@ class TestHandleTelegramUpdate:
         ):
             mock_url.return_value = "https://api.telegram.org/file/bottoken/photo.jpg"
             mock_download.return_value = b"img"
-            mock_upload.return_value = make_wp_media(99, "https://example.com/photo.jpg")
+            mock_upload.return_value = make_wp_media(
+                99, "https://example.com/photo.jpg"
+            )
 
             await handle_telegram_update(update)
 
             mock_create.assert_called_once()
             assert mock_create.call_args[1]["media_ids"] == [99]
-            assert mock_create.call_args[1]["content_html"].startswith('<figure class="telegram-media telegram-photo">')
+            assert mock_create.call_args[1]["content_html"].startswith(
+                '<figure class="telegram-media telegram-photo">'
+            )
 
     @pytest.mark.asyncio
     async def test_handle_update_video_without_text(self):
@@ -442,7 +450,9 @@ class TestHandleTelegramUpdate:
             message_id=1,
             chat=TgChat(id=1, type="channel"),
             text=None,
-            video=TgVideo(file_id="video1", file_name="clip.mp4", mime_type="video/mp4"),
+            video=TgVideo(
+                file_id="video1", file_name="clip.mp4", mime_type="video/mp4"
+            ),
         )
         update = TelegramUpdate(update_id=123, message=msg)
 
@@ -464,14 +474,19 @@ class TestHandleTelegramUpdate:
         ):
             mock_url.return_value = "https://api.telegram.org/file/bottoken/video.mp4"
             mock_download.return_value = b"video"
-            mock_upload.return_value = make_wp_media(101, "https://example.com/video.mp4")
+            mock_upload.return_value = make_wp_media(
+                101, "https://example.com/video.mp4"
+            )
 
             await handle_telegram_update(update)
 
             mock_upload.assert_called_once()
             mock_create.assert_called_once()
             assert mock_create.call_args[1]["media_ids"] == [101]
-            assert '<video controls src="https://example.com/video.mp4"' in mock_create.call_args[1]["content_html"]
+            assert (
+                '<video controls src="https://example.com/video.mp4"'
+                in mock_create.call_args[1]["content_html"]
+            )
 
     @pytest.mark.asyncio
     async def test_handle_update_document_link(self):
