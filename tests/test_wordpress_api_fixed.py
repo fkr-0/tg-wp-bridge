@@ -154,6 +154,8 @@ class TestCreateWPPost:
             mock_settings.wp_app_password = "testpass"
             mock_settings.wp_publish_status = "publish"
             mock_settings.wp_category_id = 5
+            mock_settings.wp_post_type = "post"
+            mock_settings.wp_use_featured_media = False
 
             mock_client = AsyncMock()
             mock_async_client.return_value.__aenter__.return_value = mock_client

@@ -34,6 +34,12 @@ class Settings(BaseSettings):
         description="Path-level shared secret for webhook URL",
     )
 
+    webhook_prefix: str = Field(
+        default="webhook",
+        alias="WEBHOOK_PREFIX",
+        description="Webhook path prefix. Full path: /{WEBHOOK_PREFIX}/{SECRET}",
+    )
+
     telegram_api_base: str = Field(
         default="https://api.telegram.org", alias="TELEGRAM_API_BASE"
     )
@@ -69,6 +75,16 @@ class Settings(BaseSettings):
         default="publish",
         alias="WP_PUBLISH_STATUS",
         description="Default status for new posts (publish|draft|pending)",
+    )
+    wp_post_type: str = Field(
+        default="post",
+        alias="WP_POST_TYPE",
+        description="Post type to create (post, page, or custom post type name)",
+    )
+    wp_use_featured_media: bool = Field(
+        default=False,
+        alias="WP_USE_FEATURED_MEDIA",
+        description="If True, use first image as featured media (excluded from gallery). If False, all media appears only in the gallery.",
     )
 
     # Optional filtering: only mirror messages that contain this hashtag.

@@ -221,7 +221,8 @@ def test_build_title_from_text_unicode_handling():
     """Test title building with Unicode characters."""
     text = "#blog 🌟 My title with émojis and càracters\nMore text"
     title = message_parser.build_title_from_text(text)
-    assert title == "🌟 My title with émojis and càracters"
+    # Emojis are now stripped from titles
+    assert title == "My title with émojis and càracters"
 
 
 def test_build_title_from_text_very_long_line():

@@ -97,11 +97,14 @@ def clean_settings(monkeypatch):
         "TELEGRAM_WEBHOOK_SECRET",
         "TELEGRAM_API_BASE",
         "PUBLIC_BASE_URL",
+        "WEBHOOK_PREFIX",
         "WP_BASE_URL",
         "WP_USERNAME",
         "WP_APP_PASSWORD",
         "WP_CATEGORY_ID",
         "WP_PUBLISH_STATUS",
+        "WP_POST_TYPE",
+        "WP_USE_FEATURED_MEDIA",
         "REQUIRED_HASHTAG",
     ]
 
@@ -159,11 +162,14 @@ def pure_defaults_only(monkeypatch):
         "TELEGRAM_WEBHOOK_SECRET",
         "TELEGRAM_API_BASE",
         "PUBLIC_BASE_URL",
+        "WEBHOOK_PREFIX",
         "WP_BASE_URL",
         "WP_USERNAME",
         "WP_APP_PASSWORD",
         "WP_CATEGORY_ID",
         "WP_PUBLISH_STATUS",
+        "WP_POST_TYPE",
+        "WP_USE_FEATURED_MEDIA",
         "REQUIRED_HASHTAG",
     ]
 
@@ -198,6 +204,8 @@ def safe_settings():
     settings = MagicMock()
     settings.wp_category_id = 0
     settings.wp_publish_status = "publish"
+    settings.wp_post_type = "post"
+    settings.wp_use_featured_media = False
     settings.required_hashtag = None
     settings.telegram_bot_token = None
     settings.telegram_webhook_secret = None

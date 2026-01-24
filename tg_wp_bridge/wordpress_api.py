@@ -110,19 +110,28 @@ async def create_wp_post(
     title: str,
     content_html: str,
     media_ids: Optional[List[int]] = None,
+    slug: Optional[str] = None,
 ) -> WPPostResponse:
     """
     Create a WordPress post with given content and category.
 
     media_ids can be used to set featured_media (first image).
+    slug can be provided for a custom permalink slug.
     """
     base = _ensure_wp_base_url()
-    post_url = f"{base}/wp-json/wp/v2/posts"
+    post_type = settings.wp_post_type or "post"
+    # WordPress REST API uses plural form for standard post types
+    # "post" -> "posts", "page" -> "pages", but custom post types vary
+    wp_endpoint = "posts" if post_type == "post" else post_type
+    post_url = f"{base}/wp-json/wp/v2/{wp_endpoint}"
     payload: Dict[str, Any] = {
         "title": title or "(no title)",
         "content": content_html,
         "status": settings.wp_publish_status,
     }
+
+    if slug:
+        payload["slug"] = slug
 
     if settings.wp_category_id:
         payload["categories"] = [settings.wp_category_id]

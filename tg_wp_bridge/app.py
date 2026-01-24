@@ -257,6 +257,7 @@ async def handle_telegram_update(update: TelegramUpdate) -> None:
         return
 
     title = message_parser.build_title_from_text(text)
+    slug = message_parser.build_slug_from_text(text)
     content_html = message_parser.text_to_html(text) if text.strip() else ""
 
     media_ids: List[int] = []
@@ -273,14 +274,33 @@ async def handle_telegram_update(update: TelegramUpdate) -> None:
             media_ids.append(media_info.id)
             uploaded_media.append((media, media_info))
 
-    media_markup = _build_media_gallery(uploaded_media)
+    # Handle featured media vs gallery to avoid duplication
+    use_featured = getattr(settings, "wp_use_featured_media", False)
+    gallery_media = uploaded_media
+    featured_media_ids = []
+
+    if use_featured and uploaded_media:
+        # Find first photo to use as featured, exclude from gallery
+        for idx, (descriptor, wp_media) in enumerate(uploaded_media):
+            if descriptor.media_type == "photo":
+                featured_media_ids = [wp_media.id]
+                # Exclude this photo from the gallery
+                gallery_media = uploaded_media[:idx] + uploaded_media[idx + 1 :]
+                log.info(
+                    "Using first photo as featured media (id=%s), excluded from gallery",
+                    wp_media.id,
+                )
+                break
+
+    media_markup = _build_media_gallery(gallery_media)
     if media_markup:
         content_html = f"{content_html}{media_markup}" if content_html else media_markup
 
     await wordpress_api.create_wp_post(
         title=title,
         content_html=content_html,
-        media_ids=media_ids,
+        media_ids=featured_media_ids if use_featured else [],
+        slug=slug,
     )
 
 
@@ -289,14 +309,15 @@ async def handle_telegram_update(update: TelegramUpdate) -> None:
 # ---------------------------------------------------------------------------
 
 
-@app.post("/webhook/{secret}")
 async def telegram_webhook(secret: str, update: TelegramUpdate):
     """
     Telegram webhook endpoint – secret is a simple path-level shared secret.
 
     Telegram is configured (via telegram_api.set_webhook) to call:
 
-      PUBLIC_BASE_URL/webhook/TELEGRAM_WEBHOOK_SECRET
+      PUBLIC_BASE_URL/{WEBHOOK_PREFIX}/TELEGRAM_WEBHOOK_SECRET
+
+    The WEBHOOK_PREFIX defaults to "webhook" but can be customized.
     """
     expected = settings.telegram_webhook_secret
     if expected and secret != expected:
@@ -311,6 +332,13 @@ async def telegram_webhook(secret: str, update: TelegramUpdate):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=200)
 
     return {"ok": True}
+
+
+# Register webhook route with configurable path prefix
+# This must be done after the function definition and app creation
+_webhook_path = f"/{settings.webhook_prefix}/{{secret}}"
+app.post(_webhook_path)(telegram_webhook)
+log.info("Registered Telegram webhook endpoint at path: %s", _webhook_path)
 
 
 @app.get("/healthz")

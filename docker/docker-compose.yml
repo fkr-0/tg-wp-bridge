@@ -4,6 +4,8 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
       TELEGRAM_WEBHOOK_SECRET: "${TELEGRAM_WEBHOOK_SECRET}"
@@ -11,7 +13,9 @@ services:
       WP_BASE_URL: "${WP_BASE_URL}"
       WP_USERNAME: "${WP_USERNAME}"
       WP_APP_PASSWORD: "${WP_APP_PASSWORD}"
-      WP_CATEGORY_ID: "${WP_CATEGORY_ID}"
+      WP_CATEGORY_ID: "${WP_CATEGORY_ID:-0}"
       WP_PUBLISH_STATUS: "${WP_PUBLISH_STATUS:-publish}"
+      WP_POST_TYPE: "${WP_POST_TYPE:-post}"
+      WP_USE_FEATURED_MEDIA: "${WP_USE_FEATURED_MEDIA:-false}"
     ports:
       - "8000:8000"

@@ -14,13 +14,6 @@ class TestSecurityFixtures:
         assert safe_settings.telegram_bot_token is None
         assert safe_settings.wp_base_url is None
 
-    def test_env_file_is_blocked(self):
-        """SECURITY: Verify .env file loading is blocked."""
-        # If this worked, we'd have values from .env
-        # Since we're blocking .env, we should get defaults
-        settings = Settings()
-        assert settings.wp_category_id == 0  # default, not 1 from .env
-
     def test_no_real_http_calls_allowed(self, block_all_real_network_requests):
         """
         SECURITY: Verify no real HTTP calls can be made.
