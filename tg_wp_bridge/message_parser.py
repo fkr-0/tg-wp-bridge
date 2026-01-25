@@ -41,8 +41,8 @@ def strip_emojis(text: str) -> str:
     """
     return _EMOJI_PATTERN.sub("", text).strip()
 
+from .update_model import TelegramUpdate  # enhanced update model
 from .schemas import (
-    TelegramUpdate,
     TgMessage,
     TgPhotoSize,
     TgVideo,
@@ -63,10 +63,31 @@ class TelegramMedia:
 
 def extract_message_entity(update: TelegramUpdate) -> Optional[TgMessage]:
     """
-    Return the effective message (either `channel_post` or `message`)
-    from a Telegram update.
+    Return the effective :class:`TgMessage` from a Telegram update.
+
+    This helper inspects the update's kind via :meth:`TelegramUpdate.get_payload`.
+    If the payload is an instance of :class:`TgMessage`, it is returned.
+    Otherwise, falls back to legacy behaviour by checking ``channel_post`` and
+    ``message`` attributes.
+
+    Args:
+        update: The :class:`TelegramUpdate` instance.
+
+    Returns:
+        A :class:`TgMessage` or ``None`` if no message payload is present.
     """
-    return update.channel_post or update.message
+    # New behaviour: use the exclusive payload returned by get_payload()
+    try:
+        payload = update.get_payload()
+        from .schemas import TgMessage as _TgMessage
+
+        if isinstance(payload, _TgMessage):
+            return payload
+    except Exception:
+        # If get_payload raises or is unavailable, fall back to old logic
+        pass
+    # Fallback to legacy fields
+    return getattr(update, "channel_post", None) or getattr(update, "message", None)
 
 
 def extract_message_text(update: TelegramUpdate) -> Optional[str]:
@@ -179,19 +200,10 @@ def extract_hashtags(text: str) -> List[str]:
     hashtags: List[str] = []
     seen = set()
 
-    for raw_token in text.split():
-        token = raw_token
-        if not token.startswith("#"):
-            continue
-        # strip trailing and opening punctuation commonly attached to hashtags
-        token = token.rstrip(".,!?:;)]}").lstrip("([{")
-        # Also handle hashtags that might have opening punctuation before #
-        if not token.startswith("#"):
-            continue
-        # Strip any remaining punctuation after the # processing
-        token = token.rstrip(".,!?:;)]}([{")
-        if token == "#" or len(token) < 2:
-            continue
+    # Prefer a regex-based approach to correctly handle hashtags adjacent
+    # to punctuation (e.g. "#a,#b" or "(#tag)").
+    for m in re.finditer(r"#[\w-]+", text, flags=re.UNICODE):
+        token = m.group(0)
         if token not in seen:
             seen.add(token)
             hashtags.append(token)

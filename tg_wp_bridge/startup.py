@@ -223,6 +223,13 @@ async def check_webhook_validation() -> Dict[str, Tuple[bool, str]]:
     log.info("Validating webhook configuration...")
     results = {}
 
+    # If TG_SKIP is enabled we intentionally do not manage webhooks.
+    if settings.tg_skip:
+        results["webhook_config"] = (True, "Skipped (TG_SKIP enabled)")
+        results["webhook_error"] = (True, "Skipped (TG_SKIP enabled)")
+        log.info("Webhook validation skipped because TG_SKIP is enabled")
+        return results
+
     # Check if we have all required components for webhook
     if not settings.public_base_url:
         results["webhook_config"] = (False, "Public base URL not configured")
@@ -235,9 +242,7 @@ async def check_webhook_validation() -> Dict[str, Tuple[bool, str]]:
         return results
 
     # Build webhook URL
-    webhook_url = (
-        f"{settings.public_base_url}/webhook/{settings.telegram_webhook_secret}"
-    )
+    webhook_url = telegram_api.expected_webhook_url()
     log.debug(f"Constructed webhook URL: {webhook_url}")
 
     # Check current webhook status
@@ -288,6 +293,11 @@ async def setup_webhook_if_needed() -> bool:
     """
     log.info("Checking if webhook setup is needed...")
 
+    # If TG_SKIP is enabled we intentionally do not manage webhooks.
+    if settings.tg_skip:
+        log.info("Skipping webhook setup because TG_SKIP is enabled")
+        return True
+
     # Skip if we don't have all required components
     if not (
         settings.public_base_url
@@ -298,9 +308,7 @@ async def setup_webhook_if_needed() -> bool:
         return False
 
     # Check current status
-    webhook_url = (
-        f"{settings.public_base_url}/webhook/{settings.telegram_webhook_secret}"
-    )
+    webhook_url = telegram_api.expected_webhook_url()
 
     try:
         webhook_info = await telegram_api.get_webhook_info()

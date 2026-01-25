@@ -20,6 +20,8 @@ import click
 
 from .config import settings, Settings
 from . import wordpress_api
+from . import dispatcher
+from . import handlers  # ensure handlers loaded
 from . import startup
 from .display import DisplayManager
 from .telegram_api import get_webhook_info, set_webhook
@@ -109,6 +111,100 @@ def wp_info_cmd(ctx: click.Context) -> None:
     else:
         click.echo("  Media endpoint: N/A")
         click.echo("  Posts endpoint: N/A")
+
+
+@cli.command(name="wp-list-types")
+@click.pass_context
+def wp_list_types_cmd(ctx: click.Context) -> None:
+    """List available WordPress post types via the REST API."""
+    log.info("Retrieving WordPress post types")
+    async def _list_types():
+        try:
+            types = await wordpress_api.list_wp_post_types()
+            if not types:
+                click.echo("No post types available or wp_skip enabled.")
+                return
+            click.echo("WordPress Post Types:")
+            for name, info in types.items():
+                label = info.get("name") or name
+                click.echo(f"  {name}: {label}")
+        except Exception as exc:
+            log.error("Failed to list post types: %s", exc, exc_info=ctx.obj.get("debug", False))
+            raise click.ClickException(f"Failed to list post types: {exc}")
+    asyncio.run(_list_types())
+
+
+@cli.command(name="wp-list-categories")
+@click.pass_context
+def wp_list_categories_cmd(ctx: click.Context) -> None:
+    """List WordPress categories."""
+    log.info("Retrieving WordPress categories")
+    async def _list_cats():
+        try:
+            cats = await wordpress_api.list_wp_categories()
+            if not cats:
+                click.echo("No categories available or wp_skip enabled.")
+                return
+            click.echo("WordPress Categories:")
+            for cat in cats:
+                click.echo(f"  {cat.get('id')}: {cat.get('name')}")
+        except Exception as exc:
+            log.error("Failed to list categories: %s", exc, exc_info=ctx.obj.get("debug", False))
+            raise click.ClickException(f"Failed to list categories: {exc}")
+    asyncio.run(_list_cats())
+
+
+@cli.command(name="wp-list-tags")
+@click.pass_context
+def wp_list_tags_cmd(ctx: click.Context) -> None:
+    """List WordPress tags."""
+    log.info("Retrieving WordPress tags")
+    async def _list_tags():
+        try:
+            tags = await wordpress_api.list_wp_tags()
+            if not tags:
+                click.echo("No tags available or wp_skip enabled.")
+                return
+            click.echo("WordPress Tags:")
+            for tag in tags:
+                click.echo(f"  {tag.get('id')}: {tag.get('name')}")
+        except Exception as exc:
+            log.error("Failed to list tags: %s", exc, exc_info=ctx.obj.get("debug", False))
+            raise click.ClickException(f"Failed to list tags: {exc}")
+    asyncio.run(_list_tags())
+
+
+@cli.command(name="simulate-update")
+@click.argument("update_file", type=click.Path(exists=True))
+@click.option("--force", is_flag=True, help="Force processing even when TG_SKIP is set")
+@click.pass_context
+def simulate_update_cmd(ctx: click.Context, update_file: str, force: bool) -> None:
+    """Simulate processing of a Telegram update from a JSON file.
+
+    The JSON file should contain the raw Telegram update as returned by
+    the Bot API.  This command will load the update into a
+    :class:`TelegramUpdate`, then dispatch it through the handlers.
+    """
+    log.info("Simulating update from %s (force=%s)", update_file, force)
+    from .update_model import TelegramUpdate
+    async def _simulate():
+        try:
+            with open(update_file, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            update = TelegramUpdate.model_validate(data)
+            previous_tg_skip = settings.tg_skip
+            if force:
+                object.__setattr__(settings, "tg_skip", False)
+            try:
+                await dispatcher.dispatch_update(update)
+            finally:
+                if force:
+                    object.__setattr__(settings, "tg_skip", previous_tg_skip)
+            click.echo("✓ Update processed successfully")
+        except Exception as exc:
+            log.error("Failed to simulate update: %s", exc, exc_info=ctx.obj.get("debug", False))
+            raise click.ClickException(f"Failed to simulate update: {exc}")
+    asyncio.run(_simulate())
 
 
 @cli.command(name="wp-check")

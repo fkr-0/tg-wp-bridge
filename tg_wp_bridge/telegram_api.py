@@ -37,6 +37,25 @@ def _bot_url(path: str) -> str:
     return f"{base_url}/bot{token}/{path.lstrip('/')}"
 
 
+def _webhook_public_url() -> str:
+    """Return the public webhook URL this service expects Telegram to call."""
+    if not settings.public_base_url:
+        raise RuntimeError("PUBLIC_BASE_URL is not set; cannot compute webhook URL.")
+    if not settings.telegram_webhook_secret:
+        raise RuntimeError(
+            "TELEGRAM_WEBHOOK_SECRET is not set; webhook would be unprotected."
+        )
+
+    base = str(settings.public_base_url).rstrip("/")
+    prefix = (settings.webhook_prefix or "webhook").strip("/")
+    return f"{base}/{prefix}/{settings.telegram_webhook_secret}"
+
+
+def expected_webhook_url() -> str:
+    """Public helper for other modules to compute the expected webhook URL."""
+    return _webhook_public_url()
+
+
 async def get_file_direct_url(file_id: str) -> Optional[str]:
     """
     Given a Telegram file_id, return a direct HTTPS URL for that file.
@@ -44,6 +63,7 @@ async def get_file_direct_url(file_id: str) -> Optional[str]:
     Note:
       - This URL is temporary and should be used only to download once.
     """
+    # When tg_skip is enabled we still attempt to resolve file URLs
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             _bot_url("getFile"), params={"file_id": file_id}, timeout=10.0
@@ -83,18 +103,23 @@ async def set_webhook() -> Dict[str, Any]:
       curl "https://api.telegram.org/botTOKEN/setWebhook" \
            -d "url=https://your-domain.example/tg-webhook/SECRET"
     """
+    # Respect tg_skip flag: if enabled, skip webhook registration
     _ensure_bot_token()
 
-    if not settings.public_base_url:
-        raise RuntimeError("PUBLIC_BASE_URL is not set; cannot compute webhook URL.")
-    if not settings.telegram_webhook_secret:
-        raise RuntimeError(
-            "TELEGRAM_WEBHOOK_SECRET is not set; webhook would be unprotected."
+    if settings.tg_skip:
+        webhook_url = ""
+        if settings.public_base_url and settings.telegram_webhook_secret:
+            try:
+                webhook_url = _webhook_public_url()
+            except Exception:
+                webhook_url = ""
+        log.info(
+            "tg_skip enabled; not setting Telegram webhook (would set to: %s)",
+            webhook_url,
         )
+        return {"ok": True, "result": "skipped"}
 
-    webhook_url = (
-        f"{settings.public_base_url}/webhook/{settings.telegram_webhook_secret}"
-    )
+    webhook_url = _webhook_public_url()
     payload = {"url": webhook_url}
 
     log.info("Setting Telegram webhook to: %s", webhook_url)
@@ -117,6 +142,11 @@ async def get_webhook_info() -> TelegramWebhookInfo:
     Returns TelegramWebhookInfo model.
     """
     _ensure_bot_token()
+
+    # Respect tg_skip: return a blank webhook info object
+    if settings.tg_skip:
+        log.info("tg_skip enabled; returning empty TelegramWebhookInfo")
+        return TelegramWebhookInfo.model_validate({})
 
     async with httpx.AsyncClient() as client:
         resp = await client.get(_bot_url("getWebhookInfo"), timeout=10.0)

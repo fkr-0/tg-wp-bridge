@@ -21,7 +21,7 @@ from pathlib import PurePosixPath
 from typing import List, Optional, Tuple
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import JSONResponse
 
 from . import message_parser
@@ -30,7 +30,12 @@ from . import telegram_api
 from . import wordpress_api
 from .config import settings
 from .display import DisplayManager
-from .schemas import TelegramUpdate, WPMediaResponse
+from .update_model import TelegramUpdate  # enhanced update model
+from .schemas import WPMediaResponse  # WordPress types remain here
+
+# Import dispatcher and handlers to register update handlers
+from .dispatcher import dispatch_update  # noqa: F401
+from . import handlers  # noqa: F401  # ensure handlers are imported and registered
 
 # Configure verbose logging from the start
 logging.basicConfig(
@@ -200,108 +205,14 @@ async def handle_telegram_update(update: TelegramUpdate) -> None:
       - Use simple paragraph-aware HTML rendering for content.
       - If a photo is attached, upload it to WP and set as featured media.
     """
-    msg = message_parser.extract_message_entity(update)
-    if not msg:
-        log.info("Update has no message/channel_post, ignoring.")
-        return
-
-    chat = msg.chat
-    allowed_chat_types = getattr(settings, "chat_type_allowlist", ("channel",))
-    if allowed_chat_types:
-        if chat.type not in allowed_chat_types:
-            log.info(
-                "Ignoring message from chat type %s (allowed: %s)",
-                chat.type,
-                ",".join(allowed_chat_types),
-            )
-            return
-
-    text = message_parser.extract_message_text(update) or ""
-    media_entries = message_parser.collect_supported_media(msg)
-
-    if not text.strip() and not media_entries:
-        log.info("Message has no text or supported media, ignoring.")
-        return
-
-    # Optional hashtag-based filtering
-    hashtags = message_parser.extract_hashtags(text) if text else []
-
-    if settings.required_hashtag:
-        if settings.required_hashtag not in hashtags:
-            log.info(
-                "Message skipped: required hashtag %r missing (found: %s)",
-                settings.required_hashtag,
-                hashtags,
-            )
-            return
-        log.info(
-            "Message contains required hashtag %r, proceeding",
-            settings.required_hashtag,
-        )
-
-    hashtag_allowlist = getattr(settings, "hashtag_allowlist", None)
-    if hashtag_allowlist:
-        if not any(tag in hashtags for tag in hashtag_allowlist):
-            log.info(
-                "Message skipped: no allowed hashtags present (allowed: %s)",
-                hashtag_allowlist,
-            )
-            return
-
-    hashtag_blocklist = getattr(settings, "hashtag_blocklist", None)
-    if hashtag_blocklist and any(tag in hashtags for tag in hashtag_blocklist):
-        log.info(
-            "Message skipped: blocked hashtag present (blocked: %s)",
-            hashtag_blocklist,
-        )
-        return
-
-    title = message_parser.build_title_from_text(text)
-    slug = message_parser.build_slug_from_text(text)
-    content_html = message_parser.text_to_html(text) if text.strip() else ""
-
-    media_ids: List[int] = []
-    uploaded_media: List[Tuple[message_parser.TelegramMedia, WPMediaResponse]] = []
-
-    for media in media_entries:
-        log.info(
-            "Processing Telegram media type=%s file_id=%s",
-            media.media_type,
-            media.file_id,
-        )
-        media_info = await _download_and_upload_media(media)
-        if media_info:
-            media_ids.append(media_info.id)
-            uploaded_media.append((media, media_info))
-
-    # Handle featured media vs gallery to avoid duplication
-    use_featured = getattr(settings, "wp_use_featured_media", False)
-    gallery_media = uploaded_media
-    featured_media_ids = []
-
-    if use_featured and uploaded_media:
-        # Find first photo to use as featured, exclude from gallery
-        for idx, (descriptor, wp_media) in enumerate(uploaded_media):
-            if descriptor.media_type == "photo":
-                featured_media_ids = [wp_media.id]
-                # Exclude this photo from the gallery
-                gallery_media = uploaded_media[:idx] + uploaded_media[idx + 1 :]
-                log.info(
-                    "Using first photo as featured media (id=%s), excluded from gallery",
-                    wp_media.id,
-                )
-                break
-
-    media_markup = _build_media_gallery(gallery_media)
-    if media_markup:
-        content_html = f"{content_html}{media_markup}" if content_html else media_markup
-
-    await wordpress_api.create_wp_post(
-        title=title,
-        content_html=content_html,
-        media_ids=featured_media_ids if use_featured else [],
-        slug=slug,
+    # Deprecated monolithic handler: replaced by dispatcher.
+    # This function is retained for backward compatibility but now simply
+    # forwards the update to the dispatcher.
+    log.debug(
+        "handle_telegram_update called for update %s; delegating to dispatcher",
+        update.update_id,
     )
+    await dispatch_update(update)
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +242,47 @@ async def telegram_webhook(secret: str, update: TelegramUpdate):
         # Return 200 so Telegram doesn't hammer retries forever.
         return JSONResponse({"ok": False, "error": str(e)}, status_code=200)
 
+    return {"ok": True}
+
+# ---------------------------------------------------------------------------
+# Simulation endpoint
+# ---------------------------------------------------------------------------
+
+@app.post("/simulate-update")
+async def simulate_update_endpoint(
+    update: TelegramUpdate,
+    force: bool = False,
+    secret: str | None = None,
+    x_webhook_secret: str | None = Header(default=None, alias="X-Webhook-Secret"),
+) -> dict:
+    """
+    Manually simulate processing of a Telegram update.
+
+    This endpoint is useful when ``TG_SKIP`` is enabled to bypass the
+    Telegram webhook mechanism and test WordPress integration.  The
+    request body must contain a valid Telegram update JSON payload.  If
+    ``force`` is true, the dispatcher will temporarily ignore the
+    ``tg_skip`` setting and process the update normally.  Otherwise,
+    ``tg_skip`` is respected.
+
+    Returns a JSON object summarizing the result.
+    """
+    expected = settings.telegram_webhook_secret
+    provided = secret or x_webhook_secret
+    if expected and provided != expected:
+        # Keep the simulation endpoint guarded when a webhook secret is configured.
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    previous_tg_skip = settings.tg_skip
+    if force:
+        # Temporarily disable tg_skip to force processing
+        object.__setattr__(settings, "tg_skip", False)
+    try:
+        await dispatch_update(update)
+    finally:
+        # Restore original flag
+        if force:
+            object.__setattr__(settings, "tg_skip", previous_tg_skip)
     return {"ok": True}
 
 

@@ -52,6 +52,8 @@ typecheck = "mypy tg_wp_bridge"
 minversion = "8.0"
 addopts = "-q"
 testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q --import-mode=append"
 
 [dependency-groups]
 dev = ["pytest", "pytest-asyncio", "pytest-cov", "ruff", "black", "mypy"]
