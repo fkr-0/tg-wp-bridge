@@ -3,9 +3,10 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    image: tg-wp-bridge
     restart: unless-stopped
     env_file:
-      - .env
+      - ../.env
     environment:
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
       TELEGRAM_WEBHOOK_SECRET: "${TELEGRAM_WEBHOOK_SECRET}"

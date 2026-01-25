@@ -337,7 +337,7 @@ async def telegram_webhook(secret: str, update: TelegramUpdate):
 # Register webhook route with configurable path prefix
 # This must be done after the function definition and app creation
 _webhook_path = f"/{settings.webhook_prefix}/{{secret}}"
-app.post(_webhook_path)(telegram_webhook)
+app.post(_webhook_path.replace("//", "/"))(telegram_webhook)
 log.info("Registered Telegram webhook endpoint at path: %s", _webhook_path)
 
 

@@ -86,6 +86,16 @@ class Settings(BaseSettings):
         alias="WP_USE_FEATURED_MEDIA",
         description="If True, use first image as featured media (excluded from gallery). If False, all media appears only in the gallery.",
     )
+    wp_skip: bool = Field(
+        default=False,
+        alias="WP_SKIP",
+        description="If True, dump post data to console(file,log) instead of creating posts.",
+    )
+    tg_skip: bool = Field(
+        default=False,
+        alias="TG_SKIP",
+        description="If True, dont setup webhook, skip processing incoming Telegram messages (for testing).",
+    )
 
     # Optional filtering: only mirror messages that contain this hashtag.
     # Example: "#blog". Leave unset (None) to mirror all channel messages.
