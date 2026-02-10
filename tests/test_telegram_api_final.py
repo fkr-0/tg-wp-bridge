@@ -158,6 +158,8 @@ class TestSetWebhookSecurity:
                 mock_settings.telegram_bot_token = "test_token"
                 mock_settings.public_base_url = "https://example.com"
                 mock_settings.telegram_webhook_secret = "webhook_secret"
+                mock_settings.tg_skip = False
+                mock_settings.webhook_prefix = ""
 
                 result = await telegram_api.set_webhook()
 
@@ -179,6 +181,8 @@ class TestSetWebhookSecurity:
         with patch("tg_wp_bridge.telegram_api.settings") as mock_settings:
             mock_settings.telegram_bot_token = "test_token"
             mock_settings.public_base_url = None
+            mock_settings.tg_skip = False
+            mock_settings.webhook_prefix = ""
 
             with pytest.raises(RuntimeError, match="PUBLIC_BASE_URL is not set"):
                 await telegram_api.set_webhook()
@@ -190,6 +194,8 @@ class TestSetWebhookSecurity:
             mock_settings.telegram_bot_token = "test_token"
             mock_settings.public_base_url = "https://example.com"
             mock_settings.telegram_webhook_secret = None
+            mock_settings.tg_skip = False
+            mock_settings.webhook_prefix = ""
 
             with pytest.raises(
                 RuntimeError, match="TELEGRAM_WEBHOOK_SECRET is not set"
@@ -224,6 +230,8 @@ class TestGetWebhookInfoSecurity:
 
             with patch("tg_wp_bridge.telegram_api.settings") as mock_settings:
                 mock_settings.telegram_bot_token = "test_token"
+                mock_settings.tg_skip = False
+                mock_settings.webhook_prefix = ""
 
                 result = await telegram_api.get_webhook_info()
 

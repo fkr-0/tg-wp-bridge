@@ -2,8 +2,6 @@
 SECURITY verification tests.
 """
 
-from tg_wp_bridge.config import Settings
-
 
 class TestSecurityFixtures:
     """Verify our security fixtures work correctly."""

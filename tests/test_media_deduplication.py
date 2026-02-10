@@ -8,16 +8,14 @@ Ensures that each media item appears only once in the final WordPress post:
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from tg_wp_bridge import message_parser
+from tg_wp_bridge.update_model import TelegramUpdate
 from tg_wp_bridge.schemas import (
-    TelegramUpdate,
     TgMessage,
     TgChat,
     TgPhotoSize,
     TgVideo,
 )
-from tg_wp_bridge import app
 
 
 class TestMediaDeduplication:
@@ -35,6 +33,7 @@ class TestMediaDeduplication:
         msg = TgMessage(
             message_id=1,
             chat=TgChat(id=123, type=chat_type),
+            date=0,
             text=text,
             photo=photos,
             video=video,
@@ -53,6 +52,7 @@ class TestMediaDeduplication:
         # Import and create fresh Settings to pick up the new env var
         import importlib
         import tg_wp_bridge.config
+
         importlib.reload(tg_wp_bridge.config)
         from tg_wp_bridge.config import Settings
 
@@ -72,6 +72,7 @@ class TestMediaDeduplication:
         # Import and create fresh Settings to pick up the new env var
         import importlib
         import tg_wp_bridge.config
+
         importlib.reload(tg_wp_bridge.config)
         from tg_wp_bridge.config import Settings
 
@@ -91,10 +92,16 @@ class TestMediaGalleryBehavior:
 
         # Create mock uploaded media
         media1 = message_parser.TelegramMedia(
-            file_id="photo1", media_type="photo", file_name="photo1.jpg", mime_type="image/jpeg"
+            file_id="photo1",
+            media_type="photo",
+            file_name="photo1.jpg",
+            mime_type="image/jpeg",
         )
         media2 = message_parser.TelegramMedia(
-            file_id="photo2", media_type="photo", file_name="photo2.jpg", mime_type="image/jpeg"
+            file_id="photo2",
+            media_type="photo",
+            file_name="photo2.jpg",
+            mime_type="image/jpeg",
         )
 
         wp_media1 = WPMediaResponse(
@@ -155,7 +162,9 @@ class TestMediaGalleryBehavior:
 
         # Check that all media types are represented
         assert "<figure" in gallery_html
-        assert "<img" in gallery_html or "<video" in gallery_html or "<a" in gallery_html
+        assert (
+            "<img" in gallery_html or "<video" in gallery_html or "<a" in gallery_html
+        )
 
 
 class TestMediaCollection:
@@ -170,9 +179,12 @@ class TestMediaCollection:
         msg = TgMessage(
             message_id=1,
             chat=TgChat(id=1, type="channel"),
+            date=0,
             text="",
             photo=photos,
-            video=TgVideo(file_id="vid123", file_name="clip.mp4", mime_type="video/mp4"),
+            video=TgVideo(
+                file_id="vid123", file_name="clip.mp4", mime_type="video/mp4"
+            ),
         )
 
         media = message_parser.collect_supported_media(msg)
@@ -186,22 +198,25 @@ class TestMediaCollection:
 class TestFeaturedMediaConfiguration:
     """Test WP_USE_FEATURED_MEDIA configuration."""
 
-    def test_default_is_false(self, monkeypatch):
-        """Test that WP_USE_FEATURED_MEDIA defaults to False."""
+    def test_default_is_true(self, monkeypatch):
+        """Test that WP_USE_FEATURED_MEDIA defaults to True."""
         monkeypatch.delenv("WP_USE_FEATURED_MEDIA", raising=False)
         from tg_wp_bridge.config import Settings
+
         settings = Settings()
-        assert settings.wp_use_featured_media is False
+        assert settings.wp_use_featured_media is True
 
     def test_can_be_set_to_true(self, monkeypatch):
         """Test that WP_USE_FEATURED_MEDIA can be set to True."""
         from tg_wp_bridge.config import Settings
+
         settings = Settings.model_construct(wp_use_featured_media=True)
         assert settings.wp_use_featured_media is True
 
     def test_can_be_set_to_false(self, monkeypatch):
         """Test that WP_USE_FEATURED_MEDIA can be explicitly set to False."""
         from tg_wp_bridge.config import Settings
+
         settings = Settings.model_construct(wp_use_featured_media=False)
         assert settings.wp_use_featured_media is False
 

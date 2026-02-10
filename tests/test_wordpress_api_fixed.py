@@ -39,6 +39,7 @@ class TestWordPressHelpers:
         with patch("tg_wp_bridge.wordpress_api.settings") as mock_settings:
             mock_settings.wp_username = None
             mock_settings.wp_app_password = "testpass"
+            mock_settings.wp_skip = False
             with pytest.raises(
                 RuntimeError, match="WP_USERNAME / WP_APP_PASSWORD not set"
             ):
@@ -59,6 +60,7 @@ class TestWordPressHelpers:
         with patch("tg_wp_bridge.wordpress_api.settings") as mock_settings:
             mock_settings.wp_username = "testuser"
             mock_settings.wp_app_password = "testpass"
+            mock_settings.wp_skip = False
 
             header = wordpress_api.wp_auth_header()
 
@@ -86,6 +88,7 @@ class TestUploadMediaToWP:
             mock_settings.wp_base_url = "https://wordpress.example.com"
             mock_settings.wp_username = "testuser"
             mock_settings.wp_app_password = "testpass"
+            mock_settings.wp_skip = False
 
             mock_client = AsyncMock()
             mock_async_client.return_value.__aenter__.return_value = mock_client
@@ -114,6 +117,7 @@ class TestUploadMediaToWP:
             mock_settings.wp_base_url = "https://wordpress.example.com"
             mock_settings.wp_username = "testuser"
             mock_settings.wp_app_password = "testpass"
+            mock_settings.wp_skip = False
 
             mock_client = AsyncMock()
             mock_async_client.return_value.__aenter__.return_value = mock_client
@@ -152,6 +156,7 @@ class TestCreateWPPost:
             mock_settings.wp_base_url = "https://wordpress.example.com"
             mock_settings.wp_username = "testuser"
             mock_settings.wp_app_password = "testpass"
+            mock_settings.wp_skip = False
             mock_settings.wp_publish_status = "publish"
             mock_settings.wp_category_id = 5
             mock_settings.wp_post_type = "post"
@@ -192,6 +197,7 @@ class TestCreateWPPost:
             mock_settings.wp_base_url = "https://wordpress.example.com"
             mock_settings.wp_username = "testuser"
             mock_settings.wp_app_password = "testpass"
+            mock_settings.wp_skip = False
             mock_settings.wp_publish_status = "publish"
             mock_settings.wp_category_id = 0  # No category
 
@@ -226,6 +232,7 @@ class TestCreateWPPost:
             mock_settings.wp_base_url = "https://wordpress.example.com"
             mock_settings.wp_username = "testuser"
             mock_settings.wp_app_password = "testpass"
+            mock_settings.wp_skip = False
 
             mock_client = AsyncMock()
             mock_async_client.return_value.__aenter__.return_value = mock_client
@@ -264,6 +271,7 @@ class TestWordPressDiagnostics:
             patch("httpx.AsyncClient") as mock_client_class,
         ):
             mock_settings.wp_base_url = "https://wordpress.example.com"
+            mock_settings.wp_skip = False  # Important: prevent wp_skip mode
             client = AsyncMock()
             mock_client_class.return_value.__aenter__.return_value = client
             client.get.return_value = mock_response
@@ -284,6 +292,7 @@ class TestWordPressDiagnostics:
             mock_settings.wp_base_url = "https://wordpress.example.com"
             mock_settings.wp_username = "admin"
             mock_settings.wp_app_password = "pass"
+            mock_settings.wp_skip = False  # Important: prevent wp_skip mode
 
             client = AsyncMock()
             mock_client_class.return_value.__aenter__.return_value = client

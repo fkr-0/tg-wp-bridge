@@ -11,7 +11,10 @@ def test_expected_webhook_url_respects_prefix(temp_settings):
         telegram_bot_token="12345678:TEST",
         tg_skip=False,
     ):
-        assert telegram_api.expected_webhook_url() == "https://example.com/tg-webhook/s3cr3t"
+        assert (
+            telegram_api.expected_webhook_url()
+            == "https://example.com/tg-webhook/s3cr3t"
+        )
 
 
 @pytest.mark.asyncio

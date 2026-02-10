@@ -20,7 +20,6 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, HttpUrl
 
-
 # ---------------------------------------------------------------------------
 # WordPress models
 # ---------------------------------------------------------------------------
@@ -71,20 +70,35 @@ class TgFileBase(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class TgThumbnail(BaseModel):
+    file_id: str
+    width: Optional[int] = None
+    height: Optional[int] = None
+    file_size: Optional[int] = None
+    file_unique_id: Optional[str] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
 class TgVideo(TgFileBase):
     width: Optional[int] = None
     height: Optional[int] = None
     duration: Optional[int] = None
+    thumbnail: Optional[TgThumbnail] = None
+    thumb: Optional[TgThumbnail] = None
 
 
 class TgAnimation(TgFileBase):
     width: Optional[int] = None
     height: Optional[int] = None
     duration: Optional[int] = None
+    thumbnail: Optional[TgThumbnail] = None
+    thumb: Optional[TgThumbnail] = None
 
 
 class TgDocument(TgFileBase):
-    pass
+    thumbnail: Optional[TgThumbnail] = None
+    thumb: Optional[TgThumbnail] = None
 
 
 class TgMessage(BaseModel):

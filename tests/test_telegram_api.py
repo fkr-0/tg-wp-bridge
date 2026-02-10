@@ -144,6 +144,8 @@ class TestSetWebhook:
             mock_settings.public_base_url = "https://example.com"
             mock_settings.telegram_webhook_secret = "webhook_secret"
             mock_settings.telegram_api_base = "https://api.telegram.org"
+            mock_settings.tg_skip = False  # Ensure webhook is not skipped
+            mock_settings.webhook_prefix = ""  # Empty prefix for expected URL
 
             mock_response = MagicMock()
             mock_response.raise_for_status = MagicMock()
@@ -184,6 +186,8 @@ class TestSetWebhook:
         with patch("tg_wp_bridge.telegram_api.settings") as mock_settings:
             mock_settings.telegram_bot_token = "test_token"
             mock_settings.public_base_url = None
+            mock_settings.tg_skip = False
+            mock_settings.webhook_prefix = ""
             with pytest.raises(RuntimeError, match="PUBLIC_BASE_URL is not set"):
                 await telegram_api.set_webhook()
 
@@ -194,6 +198,8 @@ class TestSetWebhook:
             mock_settings.telegram_bot_token = "test_token"
             mock_settings.public_base_url = "https://example.com"
             mock_settings.telegram_webhook_secret = None
+            mock_settings.tg_skip = False
+            mock_settings.webhook_prefix = ""
             with pytest.raises(
                 RuntimeError, match="TELEGRAM_WEBHOOK_SECRET is not set"
             ):
@@ -209,6 +215,8 @@ class TestGetWebhookInfo:
         with patch("tg_wp_bridge.telegram_api.settings") as mock_settings:
             mock_settings.telegram_bot_token = "test_token"
             mock_settings.telegram_api_base = "https://api.telegram.org"
+            mock_settings.tg_skip = False
+            mock_settings.webhook_prefix = ""
 
             mock_response_data = {
                 "ok": True,
@@ -252,6 +260,8 @@ class TestGetWebhookInfo:
         with patch("tg_wp_bridge.telegram_api.settings") as mock_settings:
             mock_settings.telegram_bot_token = "test_token"
             mock_settings.telegram_api_base = "https://api.telegram.org"
+            mock_settings.tg_skip = False
+            mock_settings.webhook_prefix = ""
 
             mock_response = MagicMock()
             mock_response.raise_for_status = MagicMock()

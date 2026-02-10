@@ -21,7 +21,8 @@ from pathlib import PurePosixPath
 from typing import List, Optional, Tuple
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from . import message_parser
@@ -112,6 +113,25 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Log validation errors with request context for easier webhook debugging."""
+    raw_body = await request.body()
+    body_preview = raw_body.decode("utf-8", errors="replace")
+    if len(body_preview) > 2000:
+        body_preview = f"{body_preview[:2000]}...<truncated>"
+
+    log.warning(
+        "Request validation failed: method=%s path=%s query=%s errors=%s body=%s",
+        request.method,
+        request.url.path,
+        str(request.url.query),
+        exc.errors(),
+        body_preview,
+    )
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
+
+
 # ---------------------------------------------------------------------------
 # Core handler: Telegram update -> WordPress post
 # ---------------------------------------------------------------------------
@@ -182,8 +202,7 @@ def _build_media_gallery(
             sections.append(
                 (
                     f'<figure class="telegram-media telegram-{descriptor.media_type}">'
-                    f'<video controls src="{safe_url}">'
-                    f'<a href="{safe_url}">Download media</a></video></figure>'
+                    f'<video controls src="{safe_url}"></video></figure>'
                 )
             )
         else:
@@ -230,6 +249,11 @@ async def telegram_webhook(secret: str, update: TelegramUpdate):
 
     The WEBHOOK_PREFIX defaults to "webhook" but can be customized.
     """
+    log.debug(
+        "Received Telegram update via webhook (update_id=%s, secret=%s)",
+        update.update_id,
+        secret,
+    )
     expected = settings.telegram_webhook_secret
     if expected and secret != expected:
         log.warning("Invalid webhook secret: %s", secret)
@@ -244,9 +268,11 @@ async def telegram_webhook(secret: str, update: TelegramUpdate):
 
     return {"ok": True}
 
+
 # ---------------------------------------------------------------------------
 # Simulation endpoint
 # ---------------------------------------------------------------------------
+
 
 @app.post("/simulate-update")
 async def simulate_update_endpoint(
@@ -288,9 +314,10 @@ async def simulate_update_endpoint(
 
 # Register webhook route with configurable path prefix
 # This must be done after the function definition and app creation
-_webhook_path = f"/{settings.webhook_prefix}/{{secret}}"
-app.post(_webhook_path.replace("//", "/"))(telegram_webhook)
-log.info("Registered Telegram webhook endpoint at path: %s", _webhook_path)
+_webhook_prefix = settings.webhook_prefix.strip("/")
+_webhook_path_pattern = f"/{_webhook_prefix}/{{secret}}" if _webhook_prefix else "/{secret}"
+app.post(_webhook_path_pattern)(telegram_webhook)
+log.info("Registered Telegram webhook endpoint pattern: %s", _webhook_path_pattern)
 
 
 @app.get("/healthz")

@@ -90,6 +90,9 @@ def clean_settings(monkeypatch):
 
     SECURITY: This ensures no .env file values leak into tests and prevents
     ANY real HTTP requests to Telegram or external services.
+
+    NOTE: If a test calls importlib.reload() on tg_wp_bridge.config, this fixture
+    handles it by also updating the reloaded settings object to maintain consistency.
     """
     # Clean environment variables completely FIRST
     env_vars_to_clean = [
@@ -139,12 +142,57 @@ def clean_settings(monkeypatch):
     monkeypatch.setattr(config_module.Settings, "model_config", test_config)
 
     # Create fresh settings instance
-    config_module.settings = config_module.Settings()
+    new_settings = config_module.Settings()
+
+    # Update the existing settings object in-place to preserve references in other modules
+    # This is important because handlers.py does `from .config import settings` which
+    # creates a reference to the original object
+    for key, value in new_settings.model_dump().items():
+        object.__setattr__(config_module.settings, key, value)
 
     # Also reset any module-level constants that depend on settings
     import tg_wp_bridge.telegram_api as telegram_api_module
 
     telegram_api_module.TELEGRAM_API_BASE = "https://fail.org"
+
+    # IMPORTANT: Also explicitly reset fields that may have been modified by temp_settings
+    # but are not set via environment variables (so they won't be in model_dump)
+    # This fixes test order dependency issues
+    # Use the actual default values from the Settings class
+    object.__setattr__(config_module.settings, "webhook_prefix", "webhook")
+    object.__setattr__(config_module.settings, "required_hashtag", None)
+    object.__setattr__(config_module.settings, "chat_type_allowlist", ("channel",))
+    object.__setattr__(config_module.settings, "hashtag_allowlist", None)
+    object.__setattr__(config_module.settings, "hashtag_blocklist", None)
+
+    # CRITICAL: Handle module reload scenario
+    # If a test calls importlib.reload(tg_wp_bridge.config), it creates a NEW settings object.
+    # We need to ensure both the old and new settings objects stay in sync for the duration
+    # of the test. We do this by returning a cleanup function that will restore consistency.
+
+    original_settings = config_module.settings
+    settings_id_before = id(config_module.settings)
+
+    def restore_settings():
+        # After test, check if settings object was replaced (via reload)
+        current_settings = config_module.settings
+        settings_id_after = id(current_settings)
+
+        if settings_id_before != settings_id_after:
+            # Settings object was replaced - sync the new object with clean values
+            for key, value in new_settings.model_dump().items():
+                object.__setattr__(current_settings, key, value)
+            # Also set the explicit defaults
+            object.__setattr__(current_settings, "webhook_prefix", "webhook")
+            object.__setattr__(current_settings, "required_hashtag", None)
+            object.__setattr__(current_settings, "chat_type_allowlist", ("channel",))
+            object.__setattr__(current_settings, "hashtag_allowlist", None)
+            object.__setattr__(current_settings, "hashtag_blocklist", None)
+
+    # Register cleanup to run after test
+    yield
+
+    restore_settings()
 
 
 @pytest.fixture
@@ -261,3 +309,76 @@ def safe_httpx_client(safe_mock_async_client):
 
 
 # == end/tests/conftest.py ==
+
+
+# Fixtures from cfte2.py - needed for test_dispatcher.py and test_handlers.py
+from contextlib import contextmanager
+
+
+@contextmanager
+def _temp_settings(**overrides):
+    """Temporarily override tg_wp_bridge.config.settings attributes."""
+    # Import fresh each time to handle module reloads
+    import tg_wp_bridge.config as config_module
+
+    settings = config_module.settings
+
+    # Also update telegram_api.settings since it imports settings at module level
+    # This is needed when tg_wp_bridge.config is reloaded (by some tests)
+    import tg_wp_bridge.telegram_api as telegram_api_module
+
+    old = {}
+    for k, v in overrides.items():
+        old[k] = getattr(settings, k)
+        # Update both config.settings and telegram_api.settings
+        object.__setattr__(settings, k, v)
+        object.__setattr__(telegram_api_module.settings, k, v)
+
+    try:
+        yield settings
+    finally:
+        for k, v in old.items():
+            object.__setattr__(settings, k, v)
+            object.__setattr__(telegram_api_module.settings, k, v)
+
+
+@pytest.fixture
+def temp_settings():
+    return _temp_settings
+
+
+@pytest.fixture
+def tmp_dirs(tmp_path, monkeypatch):
+    """Provide isolated mapping + storage directories and set related env vars."""
+    storage = tmp_path / "logs"
+    mapping_file = tmp_path / "message_map.json"
+    monkeypatch.setenv("STORAGE_DIR", str(storage))
+    monkeypatch.setenv("TG_WP_MAPPING_FILE", str(mapping_file))
+    # reasonable defaults for rotation are disabled unless tests set them
+    monkeypatch.delenv("LOG_MAX_FILES", raising=False)
+    monkeypatch.delenv("LOG_MAX_BYTES", raising=False)
+    return {
+        "storage": storage,
+        "mapping_file": mapping_file,
+    }
+
+
+@pytest.fixture
+def make_update():
+    """Factory to build minimal Telegram updates."""
+    from tg_wp_bridge.update_model import TelegramUpdate
+    from tg_wp_bridge.schemas import TgMessage, TgChat
+
+    def _mk(*, update_id: int, kind: str, message_id: int, text: str = "hello"):
+        # Create TgMessage object first so get_payload returns a TgMessage
+        msg = TgMessage(
+            message_id=message_id,
+            date=0,
+            chat=TgChat(id=1, type="channel"),
+            text=text,
+        )
+        # Create TelegramUpdate with the TgMessage object
+        payload = {"update_id": update_id, kind: msg}
+        return TelegramUpdate.model_validate(payload)
+
+    return _mk

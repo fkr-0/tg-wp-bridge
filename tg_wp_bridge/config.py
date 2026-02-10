@@ -8,7 +8,7 @@ Configuration management using pydantic-settings.
 from typing import Optional, Tuple
 
 from pydantic import AnyHttpUrl, Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict, EnvSettingsSource
+from pydantic_settings import BaseSettings, EnvSettingsSource, SettingsConfigDict
 
 
 class LenientEnvSettingsSource(EnvSettingsSource):
@@ -82,9 +82,9 @@ class Settings(BaseSettings):
         description="Post type to create (post, page, or custom post type name)",
     )
     wp_use_featured_media: bool = Field(
-        default=False,
+        default=True,
         alias="WP_USE_FEATURED_MEDIA",
-        description="If True, use first image as featured media (excluded from gallery). If False, all media appears only in the gallery.",
+        description="If True, use first uploaded media as featured media (excluded from gallery). If False, all media appears only in the gallery.",
     )
     wp_skip: bool = Field(
         default=False,
@@ -146,9 +146,11 @@ class Settings(BaseSettings):
     def _parse_list_field(value, *, default):
         if value is None:
             return default
+
         if isinstance(value, str):
             items = [item.strip() for item in value.split(",") if item.strip()]
             return tuple(items) if items else default
+
         if isinstance(value, (list, tuple, set)):
             items = [str(item).strip() for item in value if str(item).strip()]
             return tuple(items) if items else default

@@ -9,7 +9,6 @@ This module includes:
 4. Integration tests combining all features
 """
 
-import pytest
 from tg_wp_bridge import message_parser
 from tg_wp_bridge.config import Settings
 
@@ -341,6 +340,7 @@ class TestPostTypeConfiguration:
         monkeypatch.setenv("WP_POST_TYPE", "page")
         # Reset settings to pick up new env var
         from tg_wp_bridge.config import Settings
+
         settings = Settings.model_validate({"wp_post_type": "page"})
         assert settings.wp_post_type == "page"
 
@@ -349,6 +349,7 @@ class TestPostTypeConfiguration:
         monkeypatch.setenv("WP_POST_TYPE", "product")
         # Reset settings to pick up new env var
         from tg_wp_bridge.config import Settings
+
         settings = Settings.model_validate({"wp_post_type": "product"})
         assert settings.wp_post_type == "product"
 
@@ -368,6 +369,7 @@ class TestPostTypeConfiguration:
         """
         monkeypatch.setenv("WP_POST_TYPE", "custom_article")
         from tg_wp_bridge.config import Settings
+
         settings = Settings.model_validate({"wp_post_type": "custom_article"})
         assert settings.wp_post_type == "custom_article"
         assert settings.wp_post_type != "post"

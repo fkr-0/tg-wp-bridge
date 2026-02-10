@@ -5,9 +5,10 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_new_message_wp_skip_creates_mapping_and_logs(tmp_dirs, make_update, temp_settings):
+async def test_new_message_wp_skip_creates_mapping_and_logs(
+    tmp_dirs, make_update, temp_settings
+):
     from tg_wp_bridge.dispatcher import dispatch_update
-    import tg_wp_bridge.handlers  # ensure handlers are registered
 
     with temp_settings(wp_skip=True, tg_skip=False):
         upd = make_update(update_id=1, kind="message", message_id=100, text="Hello")
@@ -28,9 +29,10 @@ async def test_new_message_wp_skip_creates_mapping_and_logs(tmp_dirs, make_updat
 
 
 @pytest.mark.asyncio
-async def test_duplicate_message_does_not_create_second_wp_log(tmp_dirs, make_update, temp_settings):
+async def test_duplicate_message_does_not_create_second_wp_log(
+    tmp_dirs, make_update, temp_settings
+):
     from tg_wp_bridge.dispatcher import dispatch_update
-    import tg_wp_bridge.handlers
 
     with temp_settings(wp_skip=True, tg_skip=False):
         upd1 = make_update(update_id=1, kind="message", message_id=200, text="Hello")
@@ -46,13 +48,20 @@ async def test_duplicate_message_does_not_create_second_wp_log(tmp_dirs, make_up
 
 
 @pytest.mark.asyncio
-async def test_edited_message_wp_skip_uses_mapping_and_writes_wp_log(tmp_dirs, make_update, temp_settings):
+async def test_edited_message_wp_skip_uses_mapping_and_writes_wp_log(
+    tmp_dirs, make_update, temp_settings
+):
     from tg_wp_bridge.dispatcher import dispatch_update
-    import tg_wp_bridge.handlers
 
     with temp_settings(wp_skip=True, tg_skip=False):
-        await dispatch_update(make_update(update_id=1, kind="message", message_id=300, text="Hello"))
-        await dispatch_update(make_update(update_id=2, kind="edited_message", message_id=300, text="Hello EDIT"))
+        await dispatch_update(
+            make_update(update_id=1, kind="message", message_id=300, text="Hello")
+        )
+        await dispatch_update(
+            make_update(
+                update_id=2, kind="edited_message", message_id=300, text="Hello EDIT"
+            )
+        )
 
     storage: Path = tmp_dirs["storage"]
     wp_logs = sorted(storage.glob("*_wp_300_*.json"))
@@ -60,16 +69,41 @@ async def test_edited_message_wp_skip_uses_mapping_and_writes_wp_log(tmp_dirs, m
 
 
 @pytest.mark.asyncio
-async def test_log_rotation_by_file_count(tmp_dirs, make_update, temp_settings, monkeypatch):
+async def test_log_rotation_by_file_count(
+    tmp_dirs, make_update, temp_settings, monkeypatch
+):
     from tg_wp_bridge.dispatcher import dispatch_update
-    import tg_wp_bridge.handlers
 
     monkeypatch.setenv("LOG_MAX_FILES", "2")
     with temp_settings(wp_skip=True, tg_skip=False):
-        await dispatch_update(make_update(update_id=1, kind="message", message_id=400, text="A"))
-        await dispatch_update(make_update(update_id=2, kind="message", message_id=401, text="B"))
+        await dispatch_update(
+            make_update(update_id=1, kind="message", message_id=400, text="A")
+        )
+        await dispatch_update(
+            make_update(update_id=2, kind="message", message_id=401, text="B")
+        )
 
     storage: Path = tmp_dirs["storage"]
     files = sorted(storage.glob("*.json"))
     # rotation keeps only the newest 2 files
     assert len(files) <= 2
+
+
+def test_mapping_file_falls_back_when_default_path_not_writable(monkeypatch, tmp_path):
+    from tg_wp_bridge import handlers
+
+    monkeypatch.delenv("TG_WP_MAPPING_FILE", raising=False)
+    monkeypatch.setenv("TG_WP_MAPPING_FALLBACK_DIR", str(tmp_path))
+
+    original_mkdir = Path.mkdir
+
+    def controlled_mkdir(self, *args, **kwargs):
+        if str(self) == "data":
+            raise PermissionError("permission denied")
+        return original_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", controlled_mkdir)
+
+    mapping_path = handlers._mapping_file()
+
+    assert mapping_path == tmp_path / "message_map.json"

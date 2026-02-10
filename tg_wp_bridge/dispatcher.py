@@ -24,8 +24,7 @@ the update is ignored.
 from __future__ import annotations
 
 import logging
-from functools import wraps
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict
 
 from .update_model import TelegramUpdate, UpdateKind
 
@@ -62,9 +61,7 @@ def register_handler(kind: UpdateKind) -> Callable[[HandlerFunc], HandlerFunc]:
 
     def decorator(fn: HandlerFunc) -> HandlerFunc:
         if kind in _handlers:
-            log.warning(
-                "Overwriting existing handler for update kind %s", kind.value
-            )
+            log.warning("Overwriting existing handler for update kind %s", kind.value)
         _handlers[kind] = fn
         return fn
 

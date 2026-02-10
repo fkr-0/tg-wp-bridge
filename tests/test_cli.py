@@ -34,6 +34,8 @@ def make_settings(**overrides):
         wp_app_password="passwordwordpassword",  # Updated to pass validation (20+ chars)
         wp_category_id=1,
         wp_publish_status="publish",
+        tg_skip=False,  # Added to pass validation
+        wp_skip=False,  # Added to pass validation
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

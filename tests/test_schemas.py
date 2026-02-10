@@ -9,11 +9,11 @@ from tg_wp_bridge.schemas import (
     TgChat,
     TgPhotoSize,
     TgMessage,
-    TelegramUpdate,
     WPMediaResponse,
     WPPostResponse,
     TelegramWebhookInfo,
 )
+from tg_wp_bridge.update_model import TelegramUpdate
 
 
 class TestTelegramModels:
@@ -55,7 +55,7 @@ class TestTelegramModels:
     def test_tg_message_basic(self):
         """Test basic TgMessage creation."""
         chat = TgChat(id=123, type="channel")
-        message = TgMessage(message_id=456, chat=chat, text="Hello world")
+        message = TgMessage(message_id=456, chat=chat, date=0, text="Hello world")
         assert message.message_id == 456
         assert message.chat is chat
         assert message.text == "Hello world"
@@ -67,7 +67,7 @@ class TestTelegramModels:
         chat = TgChat(id=123, type="channel")
         photo = TgPhotoSize(file_id="photo123", width=100, height=100)
         message = TgMessage(
-            message_id=456, chat=chat, caption="Photo caption", photo=[photo]
+            message_id=456, chat=chat, date=0, caption="Photo caption", photo=[photo]
         )
         assert message.caption == "Photo caption"
         assert message.photo == [photo]
@@ -75,7 +75,7 @@ class TestTelegramModels:
     def test_telegram_update_basic(self):
         """Test basic TelegramUpdate creation."""
         chat = TgChat(id=123, type="channel")
-        message = TgMessage(message_id=456, chat=chat, text="Hello")
+        message = TgMessage(message_id=456, chat=chat, date=0, text="Hello")
         update = TelegramUpdate(update_id=789, message=message)
         assert update.update_id == 789
         assert update.message is message
@@ -84,7 +84,9 @@ class TestTelegramModels:
     def test_telegram_update_with_channel_post(self):
         """Test TelegramUpdate with channel_post."""
         chat = TgChat(id=123, type="channel")
-        channel_post = TgMessage(message_id=456, chat=chat, text="Channel message")
+        channel_post = TgMessage(
+            message_id=456, chat=chat, date=0, text="Channel message"
+        )
         update = TelegramUpdate(update_id=789, channel_post=channel_post)
         assert update.update_id == 789
         assert update.message is None
@@ -93,10 +95,10 @@ class TestTelegramModels:
     def test_telegram_update_both_message_and_channel_post(self):
         """Test TelegramUpdate with both message and channel_post."""
         chat = TgChat(id=123, type="private")
-        message = TgMessage(message_id=1, chat=chat, text="Private message")
+        message = TgMessage(message_id=1, chat=chat, date=0, text="Private message")
         channel_chat = TgChat(id=456, type="channel")
         channel_post = TgMessage(
-            message_id=2, chat=channel_chat, text="Channel message"
+            message_id=2, chat=channel_chat, date=0, text="Channel message"
         )
 
         update = TelegramUpdate(
@@ -205,7 +207,7 @@ class TestModelExtraBehavior:
         assert photo.extra == "extra"
 
         # TgMessage
-        msg = TgMessage(message_id=1, chat=chat, extra_field="extra")
+        msg = TgMessage(message_id=1, chat=chat, date=0, extra_field="extra")
         assert msg.extra_field == "extra"
 
         # TelegramUpdate

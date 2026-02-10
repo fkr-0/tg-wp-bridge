@@ -31,7 +31,12 @@ async def test_dispatcher_calls_registered_handler(make_update, temp_settings):
 
 @pytest.mark.asyncio
 async def test_dispatcher_ignores_unknown_kind(make_update):
-    from tg_wp_bridge.dispatcher import clear_handlers, dispatch_update, registered_handlers, register_handler
+    from tg_wp_bridge.dispatcher import (
+        clear_handlers,
+        dispatch_update,
+        registered_handlers,
+        register_handler,
+    )
 
     snapshot = registered_handlers()
     clear_handlers()

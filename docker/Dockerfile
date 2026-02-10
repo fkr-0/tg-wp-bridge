@@ -15,6 +15,11 @@ COPY README.md /app/README.md
 # Install the package to make CLI available
 RUN cd /app && pip install -e .
 
+# Ensure runtime-writeable directories exist for mappings and logs
+RUN mkdir -p /app/data /app/logs \
+    && chown -R appuser:appuser /app \
+    && chmod -R u+rwX,g+rwX /app
+
 ENV PYTHONPATH=/app
 
 USER appuser

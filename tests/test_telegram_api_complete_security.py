@@ -231,6 +231,8 @@ class TestSetWebhookWithCompleteMocking:
             mock_settings.telegram_bot_token = "test_token"
             mock_settings.public_base_url = "https://example.com"
             mock_settings.telegram_webhook_secret = "webhook_secret"
+            mock_settings.tg_skip = False
+            mock_settings.webhook_prefix = ""
 
             # Mock the HTTP client
             mock_client = AsyncMock()
@@ -281,6 +283,8 @@ class TestGetWebhookInfoWithCompleteMocking:
             patch("tg_wp_bridge.telegram_api.httpx") as mock_httpx,
         ):
             mock_settings.telegram_bot_token = "test_token"
+            mock_settings.tg_skip = False
+            mock_settings.webhook_prefix = ""
 
             mock_response_data = {
                 "ok": True,

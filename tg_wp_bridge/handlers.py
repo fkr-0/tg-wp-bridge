@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
@@ -46,9 +47,39 @@ from .wordpress_api import (
     create_wp_post,
     update_wp_post,
     upload_media_to_wp,
+    get_wp_post_content,
+    get_wp_post_featured_media,
 )
 
 log = logging.getLogger("tg-wp-bridge.handlers")
+
+
+def _resolve_writable_dir(
+    preferred: Path,
+    *,
+    fallback_env_var: str,
+    fallback_subdir: str,
+) -> Path:
+    """Return a writable directory path, falling back to /tmp when needed."""
+    try:
+        preferred.mkdir(parents=True, exist_ok=True)
+        return preferred
+    except PermissionError as exc:
+        fallback_root = Path(
+            os.getenv(
+                fallback_env_var,
+                str(Path(tempfile.gettempdir()) / "tg-wp-bridge" / fallback_subdir),
+            )
+        )
+        fallback_root.mkdir(parents=True, exist_ok=True)
+        log.warning(
+            "Directory %s is not writable (%s); falling back to %s",
+            preferred,
+            exc,
+            fallback_root,
+        )
+        return fallback_root
+
 
 def _mapping_file() -> Path:
     """Return the current mapping file path.
@@ -57,8 +88,12 @@ def _mapping_file() -> Path:
     override it without needing to reload the module.
     """
     path = Path(os.getenv("TG_WP_MAPPING_FILE", "data/message_map.json"))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    return path
+    parent = _resolve_writable_dir(
+        path.parent,
+        fallback_env_var="TG_WP_MAPPING_FALLBACK_DIR",
+        fallback_subdir="mapping",
+    )
+    return parent / path.name
 
 
 def _load_mapping() -> Dict[str, int]:
@@ -103,8 +138,12 @@ def _record_update_log(
     Telegram update ID.  WordPress results include the post ID in the
     filename when available.
     """
-    storage_dir = Path(os.getenv("STORAGE_DIR", "logs"))
-    storage_dir.mkdir(parents=True, exist_ok=True)
+    preferred_storage_dir = Path(os.getenv("STORAGE_DIR", "logs"))
+    storage_dir = _resolve_writable_dir(
+        preferred_storage_dir,
+        fallback_env_var="STORAGE_FALLBACK_DIR",
+        fallback_subdir="logs",
+    )
     # Include microseconds to avoid collisions when multiple updates are
     # processed within the same second.
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -152,6 +191,57 @@ def _media_counts(media: List[TelegramMedia]) -> Dict[str, int]:
     return out
 
 
+def _media_group_mapping_key(msg: TgMessage) -> Optional[str]:
+    """Build a stable mapping key for Telegram media groups (albums)."""
+    media_group_id = getattr(msg, "media_group_id", None)
+    chat = getattr(msg, "chat", None)
+    chat_id = getattr(chat, "id", None) if chat is not None else None
+    if media_group_id is None or chat_id is None:
+        return None
+    return f"mg:{chat_id}:{media_group_id}"
+
+
+def _extract_video_preview_media(msg: TgMessage) -> Optional[TelegramMedia]:
+    """Return a thumbnail media descriptor for video/animation when available."""
+    for attr in ("video", "animation"):
+        candidate = getattr(msg, attr, None)
+        if candidate is None:
+            continue
+        thumb = getattr(candidate, "thumbnail", None) or getattr(candidate, "thumb", None)
+        file_id = getattr(thumb, "file_id", None) if thumb is not None else None
+        if file_id:
+            return TelegramMedia(
+                file_id=file_id,
+                media_type="photo",
+                file_name=f"{file_id}.jpg",
+                mime_type="image/jpeg",
+            )
+    return None
+
+
+async def _upload_single_media(media: TelegramMedia) -> Optional[Any]:
+    """Upload one Telegram media descriptor to WordPress."""
+    file_url = await get_file_direct_url(media.file_id)
+    if not file_url:
+        log.warning(
+            "No file URL resolved for media %s (%s)",
+            media.file_id,
+            media.media_type,
+        )
+        return None
+    blob = await download_file(file_url)
+    file_name = media.file_name or media.file_id
+    mime = media.mime_type or "application/octet-stream"
+    log.info(
+        "Uploading media to WP: file_id=%s filename=%s mime=%s bytes=%s",
+        media.file_id,
+        file_name,
+        mime,
+        len(blob),
+    )
+    return await upload_media_to_wp(file_name, mime, blob)
+
+
 def _build_media_gallery(
     items: List[Tuple[TelegramMedia, Any]],
 ) -> str:
@@ -174,9 +264,8 @@ def _build_media_gallery(
             )
         elif descriptor.media_type in {"video", "animation"}:
             sections.append(
-                f'<figure class="telegram-media telegram-{descriptor.media_type}">' \
-                f'<video controls src="{safe_url}">' \
-                f'<a href="{safe_url}">Download media</a></video></figure>'
+                f'<figure class="telegram-media telegram-{descriptor.media_type}">'
+                f'<video controls src="{safe_url}"></video></figure>'
             )
         else:
             sections.append(
@@ -213,7 +302,7 @@ def _log_semantic_summary(
         f"  content: {stats['words']} words, {stats['lines']} lines, {stats['chars']} chars"
     )
     if counts:
-        parts = [f"{v} {k}{'' if v==1 else 's'}" for k, v in sorted(counts.items())]
+        parts = [f"{v} {k}{'' if v == 1 else 's'}" for k, v in sorted(counts.items())]
         lines.append("  media: " + ", ".join(parts))
     else:
         lines.append("  media: none")
@@ -288,7 +377,10 @@ async def _process_new_message(update: TelegramUpdate, msg: TgMessage) -> None:
     """
     # Skip processing entirely if tg_skip is set
     if settings.tg_skip:
-        log.info("tg_skip enabled; logging update %s and skipping processing", update.update_id)
+        log.info(
+            "tg_skip enabled; logging update %s and skipping processing",
+            update.update_id,
+        )
         _record_update_log(update, tg_message_id=msg.message_id)
         return
 
@@ -297,7 +389,9 @@ async def _process_new_message(update: TelegramUpdate, msg: TgMessage) -> None:
 
     # Ignore empty messages
     if not text.strip() and not media_entries:
-        log.info("Message %s has no text or supported media; ignoring.", update.update_id)
+        log.info(
+            "Message %s has no text or supported media; ignoring.", update.update_id
+        )
         return
 
     # Hashtag-based filtering
@@ -341,9 +435,142 @@ async def _process_new_message(update: TelegramUpdate, msg: TgMessage) -> None:
 
     # Idempotency: Telegram may deliver duplicates; avoid creating multiple posts.
     mapping = _load_mapping()
+    media_group_key = _media_group_mapping_key(msg)
     existing_wp_id = mapping.get(str(msg.message_id))
+    if existing_wp_id is None and media_group_key:
+        existing_wp_id = mapping.get(media_group_key)
     if existing_wp_id:
+        if media_group_key and str(msg.message_id) not in mapping:
+            # Merge later media-group parts into the original WordPress post.
+            media_wp_paths: List[str] = []
+            uploaded: List[Tuple[TelegramMedia, Any]] = []
+            for media in media_entries:
+                log.info(
+                    "Processing media-group continuation type=%s file_id=%s",
+                    media.media_type,
+                    media.file_id,
+                )
+                if settings.wp_skip:
+                    media_wp_paths.append(
+                        f"wp/{media.media_type}/{media.file_name or media.file_id}"
+                    )
+                    continue
+                try:
+                    media_info = await _upload_single_media(media)
+                    if media_info:
+                        uploaded.append((media, media_info))
+                        if getattr(media_info, "source_url", None):
+                            media_wp_paths.append(str(getattr(media_info, "source_url")))
+                        else:
+                            media_wp_paths.append(f"wp/media/{media_info.id}")
+                except Exception:
+                    log.exception(
+                        "Failed to process media-group continuation media %s",
+                        media.file_id,
+                    )
+
+            wp_result: Optional[Dict[str, Any]] = None
+            if settings.wp_skip:
+                wp_result = {"id": int(existing_wp_id)}
+            elif uploaded:
+                use_featured = getattr(settings, "wp_use_featured_media", True)
+                featured_media_id: Optional[int] = None
+                featured_item_for_fallback: List[Tuple[TelegramMedia, Any]] = []
+                gallery_items = uploaded
+                if use_featured:
+                    try:
+                        current_featured = await get_wp_post_featured_media(
+                            int(existing_wp_id)
+                        )
+                    except Exception:
+                        log.exception(
+                            "Failed to inspect featured media for WP post id=%s",
+                            existing_wp_id,
+                        )
+                        current_featured = None
+                    if current_featured is None:
+                        preview_media = _extract_video_preview_media(msg)
+                        if preview_media:
+                            try:
+                                preview_upload = await _upload_single_media(preview_media)
+                                if preview_upload:
+                                    featured_media_id = getattr(preview_upload, "id", None)
+                            except Exception:
+                                log.exception(
+                                    "Failed to upload video preview for featured media on post id=%s",
+                                    existing_wp_id,
+                                )
+                        if featured_media_id is None:
+                            first_media = uploaded[0][1]
+                            featured_media_id = getattr(first_media, "id", None)
+                            if featured_media_id:
+                                featured_item_for_fallback = [uploaded[0]]
+                                gallery_items = uploaded[1:]
+                media_markup = _build_media_gallery(gallery_items)
+                try:
+                    current_content = await get_wp_post_content(int(existing_wp_id))
+                    merged_content = (
+                        f"{current_content}{media_markup}"
+                        if current_content
+                        else media_markup
+                    )
+                    post = await update_wp_post(
+                        post_id=int(existing_wp_id),
+                        content_html=merged_content,
+                        media_ids=[featured_media_id] if featured_media_id else None,
+                    )
+                    wp_result = post.model_dump(mode="json")
+                    if featured_media_id and featured_item_for_fallback:
+                        confirmed_featured = await get_wp_post_featured_media(
+                            int(existing_wp_id)
+                        )
+                        if confirmed_featured != featured_media_id:
+                            log.warning(
+                                "Featured media assignment did not stick for post id=%s; appending first media to content instead",
+                                existing_wp_id,
+                            )
+                            fallback_markup = _build_media_gallery(featured_item_for_fallback)
+                            patched_content = f"{merged_content}{fallback_markup}"
+                            post = await update_wp_post(
+                                post_id=int(existing_wp_id),
+                                content_html=patched_content,
+                            )
+                            wp_result = post.model_dump(mode="json")
+                except Exception:
+                    log.exception(
+                        "Failed to merge media-group continuation into WP post id=%s",
+                        existing_wp_id,
+                    )
+
+            mapping[str(msg.message_id)] = int(existing_wp_id)
+            mapping[media_group_key] = int(existing_wp_id)
+            _save_mapping(mapping)
+            paths = _record_update_log(
+                update, wp_result=wp_result, tg_message_id=msg.message_id
+            )
+            _log_semantic_summary(
+                kind="MediaGroupContinuation",
+                tgid=msg.message_id,
+                title=title,
+                slug=slug,
+                text=text,
+                media=media_entries,
+                media_wp_paths=media_wp_paths,
+                wp_post_id=int(existing_wp_id),
+                tg_log_path=paths.get("tg_path"),
+                wp_log_path=paths.get("wp_path"),
+                status="MERGED (media_group continuation)",
+            )
+            return
+
+        mapping[str(msg.message_id)] = int(existing_wp_id)
+        if media_group_key:
+            mapping[media_group_key] = int(existing_wp_id)
+        _save_mapping(mapping)
         paths = _record_update_log(update, tg_message_id=msg.message_id)
+        status = "SKIPPED (already mirrored)"
+        if media_group_key:
+            status = "SKIPPED (media_group already mirrored)"
         _log_semantic_summary(
             kind="DuplicateMessage",
             tgid=msg.message_id,
@@ -355,7 +582,7 @@ async def _process_new_message(update: TelegramUpdate, msg: TgMessage) -> None:
             wp_post_id=existing_wp_id,
             tg_log_path=paths.get("tg_path"),
             wp_log_path=paths.get("wp_path"),
-            status="SKIPPED (already mirrored)",
+            status=status,
         )
         return
 
@@ -365,22 +592,17 @@ async def _process_new_message(update: TelegramUpdate, msg: TgMessage) -> None:
     # Download and upload media to WordPress (unless wp_skip)
     for media in media_entries:
         log.info(
-            "Processing Telegram media type=%s file_id=%s", media.media_type, media.file_id
+            "Processing Telegram media type=%s file_id=%s",
+            media.media_type,
+            media.file_id,
         )
         if settings.wp_skip:
-            media_wp_paths.append(f"wp/{media.media_type}/{media.file_name or media.file_id}")
+            media_wp_paths.append(
+                f"wp/{media.media_type}/{media.file_name or media.file_id}"
+            )
             continue
         try:
-            file_url = await get_file_direct_url(media.file_id)
-            if not file_url:
-                log.warning(
-                    "No file URL resolved for media %s (%s)", media.file_id, media.media_type
-                )
-                continue
-            blob = await download_file(file_url)
-            file_name = media.file_name or media.file_id
-            mime = media.mime_type or "application/octet-stream"
-            media_info = await upload_media_to_wp(file_name, mime, blob)
+            media_info = await _upload_single_media(media)
             if media_info:
                 media_ids.append(media_info.id)
                 uploaded.append((media, media_info))
@@ -392,15 +614,28 @@ async def _process_new_message(update: TelegramUpdate, msg: TgMessage) -> None:
             log.exception("Failed to process media %s", media.file_id)
 
     # Determine featured media vs gallery
-    use_featured = getattr(settings, "wp_use_featured_media", False)
+    use_featured = getattr(settings, "wp_use_featured_media", True)
     featured_id: Optional[int] = None
+    featured_from_uploaded_item = False
+    featured_item_for_fallback: List[Tuple[TelegramMedia, Any]] = []
     gallery_items = uploaded
     if use_featured and uploaded:
-        for idx, (desc, wp_media) in enumerate(uploaded):
-            if desc.media_type == "photo":
-                featured_id = getattr(wp_media, "id", None)
-                gallery_items = uploaded[:idx] + uploaded[idx + 1 :]
-                break
+        preview_media = _extract_video_preview_media(msg)
+        if preview_media and not settings.wp_skip:
+            try:
+                preview_upload = await _upload_single_media(preview_media)
+                if preview_upload:
+                    featured_id = getattr(preview_upload, "id", None)
+            except Exception:
+                log.exception("Failed to upload video preview for featured media")
+        if featured_id is None:
+            first_media = uploaded[0][1]
+            featured_id = getattr(first_media, "id", None)
+            featured_from_uploaded_item = featured_id is not None
+        if featured_id:
+            if featured_from_uploaded_item:
+                featured_item_for_fallback = [uploaded[0]]
+                gallery_items = uploaded[1:]
     if featured_id:
         media_ids = [featured_id]
 
@@ -428,6 +663,8 @@ async def _process_new_message(update: TelegramUpdate, msg: TgMessage) -> None:
         }
         # Still record mapping in skip mode to support edit-message simulations.
         mapping[str(msg.message_id)] = pseudo_id
+        if media_group_key:
+            mapping[media_group_key] = pseudo_id
         _save_mapping(mapping)
     else:
         try:
@@ -438,13 +675,43 @@ async def _process_new_message(update: TelegramUpdate, msg: TgMessage) -> None:
                 slug=slug,
             )
             wp_result = post.model_dump(mode="json")
+            if featured_id and featured_item_for_fallback:
+                created_featured = wp_result.get("featured_media")
+                if created_featured is None and not settings.wp_skip:
+                    try:
+                        created_featured = await get_wp_post_featured_media(post.id)
+                    except Exception:
+                        log.exception(
+                            "Failed to verify featured media for post id=%s after creation",
+                            post.id,
+                        )
+                if created_featured != featured_id:
+                    log.warning(
+                        "Featured media assignment did not stick for post id=%s; appending first media to content instead",
+                        post.id,
+                    )
+                    fallback_markup = _build_media_gallery(featured_item_for_fallback)
+                    patched_content = (
+                        f"{content_html}{fallback_markup}"
+                        if content_html
+                        else fallback_markup
+                    )
+                    post = await update_wp_post(
+                        post_id=post.id,
+                        content_html=patched_content,
+                    )
+                    wp_result = post.model_dump(mode="json")
             mapping[str(msg.message_id)] = post.id
+            if media_group_key:
+                mapping[media_group_key] = post.id
             _save_mapping(mapping)
         except Exception:
             log.exception("Failed to create WP post for message %s", msg.message_id)
 
     # Record log after processing
-    paths = _record_update_log(update, wp_result=wp_result, tg_message_id=msg.message_id)
+    paths = _record_update_log(
+        update, wp_result=wp_result, tg_message_id=msg.message_id
+    )
     _log_semantic_summary(
         kind="NewMessage",
         tgid=msg.message_id,
@@ -483,6 +750,10 @@ async def _process_edited_message(update: TelegramUpdate, msg: TgMessage) -> Non
     # Look up WordPress post ID
     mapping = _load_mapping()
     wp_id = mapping.get(str(msg.message_id))
+    if not wp_id:
+        media_group_key = _media_group_mapping_key(msg)
+        if media_group_key:
+            wp_id = mapping.get(media_group_key)
     if not wp_id:
         log.warning(
             "Edited message %s has no known WordPress post mapping; storing update only",
@@ -546,13 +817,16 @@ async def _process_edited_message(update: TelegramUpdate, msg: TgMessage) -> Non
 
 # Register handlers with dispatcher
 
+
 @register_handler(UpdateKind.message)
 @register_handler(UpdateKind.channel_post)
 async def handle_new_message(update: TelegramUpdate, payload: Any) -> None:
     """Handler for new messages and channel posts."""
     if not isinstance(payload, TgMessage):
         log.warning(
-            "Expected TgMessage payload for update %s, got %r", update.update_id, type(payload)
+            "Expected TgMessage payload for update %s, got %r",
+            update.update_id,
+            type(payload),
         )
         return
     await _process_new_message(update, payload)
@@ -564,7 +838,9 @@ async def handle_edited_message(update: TelegramUpdate, payload: Any) -> None:
     """Handler for edited messages and channel posts."""
     if not isinstance(payload, TgMessage):
         log.warning(
-            "Expected TgMessage payload for edited update %s, got %r", update.update_id, type(payload)
+            "Expected TgMessage payload for edited update %s, got %r",
+            update.update_id,
+            type(payload),
         )
         return
     await _process_edited_message(update, payload)

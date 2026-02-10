@@ -6,7 +6,6 @@ Tests the WEBHOOK_PREFIX configuration which allows customization
 of the Telegram webhook URL path.
 """
 
-import pytest
 from tg_wp_bridge.config import Settings
 
 
@@ -24,8 +23,10 @@ class TestWebhookPrefixConfiguration:
         monkeypatch.setenv("WEBHOOK_PREFIX", "telegraph")
         import importlib
         import tg_wp_bridge.config
+
         importlib.reload(tg_wp_bridge.config)
         from tg_wp_bridge.config import Settings
+
         settings = Settings.model_construct(webhook_prefix="telegraph")
         assert settings.webhook_prefix == "telegraph"
 
@@ -34,8 +35,10 @@ class TestWebhookPrefixConfiguration:
         monkeypatch.setenv("WEBHOOK_PREFIX", "")
         import importlib
         import tg_wp_bridge.config
+
         importlib.reload(tg_wp_bridge.config)
         from tg_wp_bridge.config import Settings
+
         # Empty string should be allowed (results in /{secret} path)
         settings = Settings.model_construct(webhook_prefix="")
         assert settings.webhook_prefix == ""
@@ -45,6 +48,7 @@ class TestWebhookPrefixConfiguration:
         # The value is used as-is, user is responsible for proper formatting
         import importlib
         import tg_wp_bridge.config
+
         importlib.reload(tg_wp_bridge.config)
         from tg_wp_bridge.config import Settings
 
@@ -63,6 +67,7 @@ class TestWebhookPrefixBehavior:
     def test_webhook_path_construction_default(self):
         """Test that default webhook path is /webhook/{secret}."""
         from tg_wp_bridge.config import settings
+
         expected_path = f"/{settings.webhook_prefix}/{{secret}}"
         assert expected_path == "/webhook/{secret}"
 
@@ -91,6 +96,7 @@ class TestWebhookPrefixFalsifying:
         FALSIFYING: Verify that the default prefix is 'webhook'.
         """
         from tg_wp_bridge.config import Settings
+
         settings = Settings.model_construct(webhook_prefix="webhook")
         assert settings.webhook_prefix == "webhook"
 
@@ -99,6 +105,7 @@ class TestWebhookPrefixFalsifying:
         FALSIFYING: Verify that custom prefix differs from default.
         """
         from tg_wp_bridge.config import Settings
+
         settings = Settings.model_construct(webhook_prefix="custom")
         assert settings.webhook_prefix != "webhook"
         assert settings.webhook_prefix == "custom"
@@ -117,9 +124,9 @@ class TestWebhookPrefixRegression:
         # The validation logic should be independent of the prefix
         # This test documents that the secret validation remains unchanged
         from tg_wp_bridge.config import Settings
+
         settings = Settings.model_construct(
-            webhook_prefix="webhook",
-            telegram_webhook_secret="testsecret"
+            webhook_prefix="webhook", telegram_webhook_secret="testsecret"
         )
         assert settings.telegram_webhook_secret == "testsecret"
 
@@ -128,6 +135,7 @@ class TestWebhookPrefixRegression:
         REGRESSION: Verify backward compatibility - default behavior unchanged.
         """
         from tg_wp_bridge.config import Settings
+
         settings = Settings.model_construct(webhook_prefix="webhook")
         # Default should be "webhook" to maintain backward compatibility
         assert settings.webhook_prefix == "webhook"

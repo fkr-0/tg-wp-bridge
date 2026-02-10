@@ -1,6 +1,5 @@
 # == tests/test_message_parser.py (extended) ==
 from tg_wp_bridge.schemas import (
-    TelegramUpdate,
     TgMessage,
     TgChat,
     TgPhotoSize,
@@ -9,6 +8,7 @@ from tg_wp_bridge.schemas import (
     TgDocument,
 )
 from tg_wp_bridge import message_parser
+from tg_wp_bridge.update_model import TelegramUpdate
 
 
 def make_update(
@@ -21,6 +21,7 @@ def make_update(
     msg = TgMessage(
         message_id=1,
         chat=TgChat(id=123, type=chat_type),
+        date=0,
         text=text,
         caption=caption,
         photo=photos,
@@ -32,11 +33,13 @@ def test_extract_message_entity_prefers_channel_post_when_present():
     msg_channel = TgMessage(
         message_id=2,
         chat=TgChat(id=1, type="channel"),
+        date=0,
         text="from channel",
     )
     msg_normal = TgMessage(
         message_id=1,
         chat=TgChat(id=1, type="private"),
+        date=0,
         text="from message",
     )
     update = TelegramUpdate(
@@ -71,6 +74,7 @@ def test_find_photo_with_max_size_returns_largest():
     msg = TgMessage(
         message_id=10,
         chat=TgChat(id=1, type="channel"),
+        date=0,
         text="",
         photo=photos,
     )
@@ -85,6 +89,7 @@ def test_find_photo_with_max_size_none_when_no_photos():
     msg = TgMessage(
         message_id=11,
         chat=TgChat(id=1, type="channel"),
+        date=0,
         text="",
         photo=None,
     )
@@ -172,6 +177,7 @@ def test_find_photo_with_max_size_equal_areas():
     msg = TgMessage(
         message_id=10,
         chat=TgChat(id=1, type="channel"),
+        date=0,
         text="",
         photo=photos,
     )
@@ -187,11 +193,13 @@ def test_extract_message_entity_favors_channel_post():
     msg_channel = TgMessage(
         message_id=2,
         chat=TgChat(id=1, type="channel"),
+        date=0,
         text="from channel",
     )
     msg_normal = TgMessage(
         message_id=1,
         chat=TgChat(id=1, type="private"),
+        date=0,
         text="from message",
     )
     update = TelegramUpdate(
@@ -267,6 +275,7 @@ def test_collect_supported_media_photo_and_video():
     msg = TgMessage(
         message_id=1,
         chat=TgChat(id=1, type="channel"),
+        date=0,
         text="",
         photo=photos,
         video=TgVideo(file_id="vid123", file_name="clip.mp4", mime_type="video/mp4"),
@@ -282,6 +291,7 @@ def test_collect_supported_media_deduplicates_file_ids():
     msg = TgMessage(
         message_id=2,
         chat=TgChat(id=1, type="channel"),
+        date=0,
         text="",
         animation=TgAnimation(file_id="dup", file_name="fun.gif"),
         document=TgDocument(file_id="dup", file_name="fun.gif"),
@@ -296,6 +306,7 @@ def test_collect_supported_media_document_only():
     msg = TgMessage(
         message_id=3,
         chat=TgChat(id=1, type="channel"),
+        date=0,
         text="",
         document=TgDocument(
             file_id="doc1", file_name="file.pdf", mime_type="application/pdf"

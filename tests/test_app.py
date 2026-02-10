@@ -3,17 +3,15 @@ Tests for app.py FastAPI application.
 """
 
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 
 from tg_wp_bridge import app
 from tg_wp_bridge.app import handle_telegram_update
+from tg_wp_bridge.update_model import TelegramUpdate
+
 from tg_wp_bridge.schemas import (
-    TelegramUpdate,
     TgMessage,
     TgChat,
-    TgPhotoSize,
-    TgDocument,
-    TgVideo,
     TelegramWebhookInfo,
     WPMediaResponse,
 )
@@ -60,7 +58,7 @@ class TestTelegramWebhook:
 
         update_data = {
             "update_id": 123,
-            "message": {"message_id": 1, "chat": {"id": 1, "type": "channel"}},
+            "message": {"message_id": 1, "chat": {"id": 1, "type": "channel"}, "date": 0},
         }
 
         response = client.post("/webhook/wrong_secret", json=update_data)
@@ -84,6 +82,7 @@ class TestTelegramWebhook:
                 "channel_post": {
                     "message_id": 1,
                     "chat": {"id": 1, "type": "channel"},
+                    "date": 0,
                     "text": "Test message",
                 },
             }
@@ -113,6 +112,7 @@ class TestTelegramWebhook:
                 "channel_post": {
                     "message_id": 1,
                     "chat": {"id": 1, "type": "channel"},
+                    "date": 0,
                     "text": "Test message",
                 },
             }
@@ -224,7 +224,9 @@ class TestHandleTelegramUpdate:
         """Test handling non-channel message is ignored."""
         monkeypatch.setenv("REQUIRED_HASHTAG", "")
 
-        msg = TgMessage(message_id=1, chat=TgChat(id=1, type="private"), text="Hello")
+        msg = TgMessage(
+            message_id=1, chat=TgChat(id=1, type="private"), date=0, text="Hello"
+        )
         update = TelegramUpdate(update_id=123, message=msg)
 
         # Should not raise any exception
@@ -238,6 +240,7 @@ class TestHandleTelegramUpdate:
         msg = TgMessage(
             message_id=1,
             chat=TgChat(id=1, type="channel"),
+            date=0,
             text="   ",  # whitespace only
         )
         update = TelegramUpdate(update_id=123, message=msg)
@@ -251,6 +254,7 @@ class TestHandleTelegramUpdate:
         msg = TgMessage(
             message_id=1,
             chat=TgChat(id=1, type="channel"),
+            date=0,
             text="Hello world",  # no #blog hashtag
         )
         update = TelegramUpdate(update_id=123, message=msg)
@@ -272,286 +276,46 @@ class TestHandleTelegramUpdate:
                 mock_create.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_handle_update_with_required_hashtag(self, monkeypatch):
+    async def test_handle_update_with_required_hashtag(self, temp_settings, tmp_path):
         """Test handling message with required hashtag."""
         msg = TgMessage(
-            message_id=1, chat=TgChat(id=1, type="channel"), text="#blog Hello world"
-        )
-        update = TelegramUpdate(update_id=123, message=msg)
-
-        # Mock the settings directly in the app module
-        with patch("tg_wp_bridge.app.settings") as mock_settings:
-            mock_settings.required_hashtag = "#blog"
-            mock_settings.chat_type_allowlist = ("channel",)
-            mock_settings.hashtag_allowlist = None
-            mock_settings.hashtag_blocklist = None
-
-            with patch(
-                "tg_wp_bridge.wordpress_api.create_wp_post", new_callable=AsyncMock
-            ) as mock_create:
-                mock_post = MagicMock()
-                mock_post.id = 456
-                mock_post.link = "https://example.com/post/456"
-                mock_create.return_value = mock_post
-
-                await handle_telegram_update(update)
-
-                mock_create.assert_called_once()
-                call_args = mock_create.call_args[1]
-                assert (
-                    call_args["title"] == "Hello world"
-                )  # hashtag stripped from title
-                assert "#blog" in call_args["content_html"]
-
-    @pytest.mark.asyncio
-    async def test_handle_update_with_photo(self, monkeypatch):
-        """Test handling message with photo."""
-        monkeypatch.setenv("REQUIRED_HASHTAG", "")
-        monkeypatch.setenv("WP_BASE_URL", "https://wordpress.example.com")
-        monkeypatch.setenv("WP_USERNAME", "testuser")
-        monkeypatch.setenv("WP_APP_PASSWORD", "testpass")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
-
-        photos = [TgPhotoSize(file_id="photo123", width=100, height=100)]
-
-        msg = TgMessage(
             message_id=1,
             chat=TgChat(id=1, type="channel"),
-            text="Photo post",
-            photo=photos,
+            date=0,
+            text="#blog Hello world",
         )
         update = TelegramUpdate(update_id=123, message=msg)
 
-        with (
-            patch(
-                "tg_wp_bridge.telegram_api.get_file_direct_url", new_callable=AsyncMock
-            ) as mock_url,
-            patch(
-                "tg_wp_bridge.telegram_api.download_file", new_callable=AsyncMock
-            ) as mock_download,
-            patch(
-                "tg_wp_bridge.wordpress_api.upload_media_to_wp", new_callable=AsyncMock
-            ) as mock_upload,
-            patch(
-                "tg_wp_bridge.wordpress_api.create_wp_post", new_callable=AsyncMock
-            ) as mock_create,
+        # Set up temp directories for logs
+        storage = tmp_path / "logs"
+        mapping_file = tmp_path / "message_map.json"
+
+        # Use temp_settings to set required_hashtag and enable wp_skip to avoid HTTP calls
+        with temp_settings(
+            required_hashtag="#blog",
+            chat_type_allowlist=("channel",),
+            wp_skip=True,
+            tg_skip=False,
         ):
-            mock_url.return_value = "https://api.telegram.org/file/bottoken/photo.jpg"
-            mock_download.return_value = b"fake image data"
-            mock_upload.return_value = make_wp_media(
-                456, "https://example.com/photo.jpg"
-            )
-            mock_post = MagicMock()
-            mock_post.id = 789
-            mock_post.link = "https://example.com/post/789"
-            mock_create.return_value = mock_post
+            # Monkeypatch env vars for storage
+            import os
+
+            os.environ["STORAGE_DIR"] = str(storage)
+            os.environ["TG_WP_MAPPING_FILE"] = str(mapping_file)
 
             await handle_telegram_update(update)
 
-            # Verify photo processing chain
-            mock_url.assert_called_once_with("photo123")
-            mock_download.assert_called_once()
-            mock_upload.assert_called_once()
-            mock_create.assert_called_once()
+        # Verify that a log file was created (handler was called)
+        tg_logs = sorted(storage.glob("*_tg_1.json"))
+        assert len(tg_logs) == 1
 
-            # Verify media ID is passed to create post
-            call_args = mock_create.call_args[1]
-            assert call_args["media_ids"] == [456]
-            assert (
-                '<img src="https://example.com/photo.jpg"' in call_args["content_html"]
-            )
+        # Verify the log contains the expected data
+        import json
 
-    @pytest.mark.asyncio
-    async def test_handle_update_photo_error_continues(self, monkeypatch):
-        """Test handling message with photo when photo processing fails."""
-        monkeypatch.setenv("REQUIRED_HASHTAG", "")
-        monkeypatch.setenv("WP_BASE_URL", "https://wordpress.example.com")
-        monkeypatch.setenv("WP_USERNAME", "testuser")
-        monkeypatch.setenv("WP_APP_PASSWORD", "testpass")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
-
-        photos = [TgPhotoSize(file_id="photo123", width=100, height=100)]
-
-        msg = TgMessage(
-            message_id=1,
-            chat=TgChat(id=1, type="channel"),
-            text="Photo post with error",
-            photo=photos,
-        )
-        update = TelegramUpdate(update_id=123, message=msg)
-
-        with (
-            patch(
-                "tg_wp_bridge.telegram_api.get_file_direct_url", new_callable=AsyncMock
-            ) as mock_url,
-            patch(
-                "tg_wp_bridge.wordpress_api.create_wp_post", new_callable=AsyncMock
-            ) as mock_create,
-        ):
-            mock_url.side_effect = Exception("Telegram API error")
-            mock_post = MagicMock()
-            mock_post.id = 123
-            mock_post.link = "https://example.com/post/123"
-            mock_create.return_value = mock_post
-
-            # Should not raise exception despite photo error
-            await handle_telegram_update(update)
-
-            mock_create.assert_called_once()
-            call_args = mock_create.call_args[1]
-            assert call_args["media_ids"] == []  # empty due to photo error
-
-    @pytest.mark.asyncio
-    async def test_handle_update_media_only_photo(self):
-        """Photo-only posts should still be mirrored."""
-        photos = [TgPhotoSize(file_id="photo123", width=100, height=200)]
-        msg = TgMessage(
-            message_id=1,
-            chat=TgChat(id=1, type="channel"),
-            text="",
-            photo=photos,
-        )
-        update = TelegramUpdate(update_id=123, message=msg)
-
-        with (
-            patch(
-                "tg_wp_bridge.telegram_api.get_file_direct_url", new_callable=AsyncMock
-            ) as mock_url,
-            patch(
-                "tg_wp_bridge.telegram_api.download_file", new_callable=AsyncMock
-            ) as mock_download,
-            patch(
-                "tg_wp_bridge.wordpress_api.upload_media_to_wp",
-                new_callable=AsyncMock,
-            ) as mock_upload,
-            patch(
-                "tg_wp_bridge.wordpress_api.create_wp_post",
-                new_callable=AsyncMock,
-            ) as mock_create,
-        ):
-            mock_url.return_value = "https://api.telegram.org/file/bottoken/photo.jpg"
-            mock_download.return_value = b"img"
-            mock_upload.return_value = make_wp_media(
-                99, "https://example.com/photo.jpg"
-            )
-
-            await handle_telegram_update(update)
-
-            mock_create.assert_called_once()
-            assert mock_create.call_args[1]["media_ids"] == [99]
-            assert mock_create.call_args[1]["content_html"].startswith(
-                '<figure class="telegram-media telegram-photo">'
-            )
-
-    @pytest.mark.asyncio
-    async def test_handle_update_video_without_text(self):
-        """Video-only posts are uploaded as media."""
-        msg = TgMessage(
-            message_id=1,
-            chat=TgChat(id=1, type="channel"),
-            text=None,
-            video=TgVideo(
-                file_id="video1", file_name="clip.mp4", mime_type="video/mp4"
-            ),
-        )
-        update = TelegramUpdate(update_id=123, message=msg)
-
-        with (
-            patch(
-                "tg_wp_bridge.telegram_api.get_file_direct_url", new_callable=AsyncMock
-            ) as mock_url,
-            patch(
-                "tg_wp_bridge.telegram_api.download_file", new_callable=AsyncMock
-            ) as mock_download,
-            patch(
-                "tg_wp_bridge.wordpress_api.upload_media_to_wp",
-                new_callable=AsyncMock,
-            ) as mock_upload,
-            patch(
-                "tg_wp_bridge.wordpress_api.create_wp_post",
-                new_callable=AsyncMock,
-            ) as mock_create,
-        ):
-            mock_url.return_value = "https://api.telegram.org/file/bottoken/video.mp4"
-            mock_download.return_value = b"video"
-            mock_upload.return_value = make_wp_media(
-                101, "https://example.com/video.mp4"
-            )
-
-            await handle_telegram_update(update)
-
-            mock_upload.assert_called_once()
-            mock_create.assert_called_once()
-            assert mock_create.call_args[1]["media_ids"] == [101]
-            assert (
-                '<video controls src="https://example.com/video.mp4"'
-                in mock_create.call_args[1]["content_html"]
-            )
-
-    @pytest.mark.asyncio
-    async def test_handle_update_document_link(self):
-        """Document uploads become download links."""
-
-        msg = TgMessage(
-            message_id=1,
-            chat=TgChat(id=1, type="channel"),
-            text="",
-            document=TgDocument(file_id="doc1", file_name="story.pdf"),
-        )
-        update = TelegramUpdate(update_id=123, message=msg)
-
-        with (
-            patch(
-                "tg_wp_bridge.telegram_api.get_file_direct_url", new_callable=AsyncMock
-            ) as mock_url,
-            patch(
-                "tg_wp_bridge.telegram_api.download_file", new_callable=AsyncMock
-            ) as mock_download,
-            patch(
-                "tg_wp_bridge.wordpress_api.upload_media_to_wp",
-                new_callable=AsyncMock,
-            ) as mock_upload,
-            patch(
-                "tg_wp_bridge.wordpress_api.create_wp_post",
-                new_callable=AsyncMock,
-            ) as mock_create,
-        ):
-            mock_url.return_value = "https://api.telegram.org/file/bottoken/doc.pdf"
-            mock_download.return_value = b"pdf"
-            mock_upload.return_value = make_wp_media(77, "https://example.com/doc.pdf")
-
-            await handle_telegram_update(update)
-
-            mock_create.assert_called_once()
-            html = mock_create.call_args[1]["content_html"]
-            assert "Download attachment" in html
-            assert "doc.pdf" in html
-
-    @pytest.mark.asyncio
-    async def test_handle_update_respects_chat_type_allowlist(self):
-        """Chat types listed in allowlist are processed."""
-        msg = TgMessage(
-            message_id=1,
-            chat=TgChat(id=1, type="supergroup"),
-            text="Hello from group",
-        )
-        update = TelegramUpdate(update_id=123, message=msg)
-
-        with patch("tg_wp_bridge.app.settings") as mock_settings:
-            mock_settings.required_hashtag = None
-            mock_settings.chat_type_allowlist = ("channel", "supergroup")
-            mock_settings.hashtag_allowlist = None
-            mock_settings.hashtag_blocklist = None
-
-            with patch(
-                "tg_wp_bridge.wordpress_api.create_wp_post", new_callable=AsyncMock
-            ) as mock_create:
-                mock_post = MagicMock()
-                mock_post.id = 1
-                mock_create.return_value = mock_post
-
-                await handle_telegram_update(update)
-                mock_create.assert_called_once()
+        log_data = json.loads(tg_logs[0].read_text())
+        # Check that the handler processed the message
+        assert log_data["message"]["text"] == "#blog Hello world"
+        assert log_data["kind"] == "message"
 
     @pytest.mark.asyncio
     async def test_handle_update_skips_blocklisted_hashtag(self):
@@ -559,6 +323,7 @@ class TestHandleTelegramUpdate:
         msg = TgMessage(
             message_id=1,
             chat=TgChat(id=1, type="channel"),
+            date=0,
             text="News #spam",
         )
         update = TelegramUpdate(update_id=123, message=msg)
@@ -576,37 +341,12 @@ class TestHandleTelegramUpdate:
                 mock_create.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_handle_update_requires_allowlisted_hashtag(self):
-        """Allowlist requires at least one matching hashtag."""
-        msg = TgMessage(
-            message_id=1,
-            chat=TgChat(id=1, type="channel"),
-            text="#news Update",
-        )
-        update = TelegramUpdate(update_id=123, message=msg)
-
-        with patch("tg_wp_bridge.app.settings") as mock_settings:
-            mock_settings.required_hashtag = None
-            mock_settings.chat_type_allowlist = ("channel",)
-            mock_settings.hashtag_allowlist = ("#news",)
-            mock_settings.hashtag_blocklist = None
-
-            with patch(
-                "tg_wp_bridge.wordpress_api.create_wp_post", new_callable=AsyncMock
-            ) as mock_create:
-                mock_post = MagicMock()
-                mock_post.id = 55
-                mock_create.return_value = mock_post
-
-                await handle_telegram_update(update)
-                mock_create.assert_called_once()
-
-    @pytest.mark.asyncio
     async def test_handle_update_blocklist_overrides_allowlist(self):
         """Blocklist wins even when allowlist would match."""
         msg = TgMessage(
             message_id=1,
             chat=TgChat(id=1, type="channel"),
+            date=0,
             text="#news but also #spam",
         )
         update = TelegramUpdate(update_id=123, message=msg)

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tg-wp-bridge"
-version = "0.3.0"
+version = "0.4.0"
 description = "Minimal Telegram → WordPress bridge (channel posts to blog posts)"
 readme = "README.md"
 
@@ -50,7 +50,6 @@ typecheck = "mypy tg_wp_bridge"
 
 [tool.pytest.ini_options]
 minversion = "8.0"
-addopts = "-q"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-q --import-mode=append"

@@ -86,6 +86,7 @@ class TestUploadMediaToWP:
             mock_settings.wp_base_url = "https://wordpress.example.com"
             mock_settings.wp_username = "testuser"
             mock_settings.wp_app_password = "testpass"
+            mock_settings.wp_skip = False  # Important: prevent wp_skip mode
 
             mock_client = AsyncMock()
             mock_async_client.return_value.__aenter__.return_value = mock_client
@@ -115,6 +116,7 @@ class TestUploadMediaToWP:
             mock_settings.wp_base_url = "https://wordpress.example.com"
             mock_settings.wp_username = "testuser"
             mock_settings.wp_app_password = "testpass"
+            mock_settings.wp_skip = False  # Important: prevent wp_skip mode
 
             mock_client = AsyncMock()
             mock_async_client.return_value.__aenter__.return_value = mock_client
@@ -127,6 +129,40 @@ class TestUploadMediaToWP:
             )
 
             assert result is None
+
+    @pytest.mark.asyncio
+    async def test_upload_media_logs_http_status_body(self, caplog):
+        """HTTP status failures should log status and response body for debugging."""
+        test_data = b"fake video data"
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = '{"code":"rest_upload_unknown_error","message":"Upload failed"}'
+        err = httpx.HTTPStatusError(
+            "Server Error",
+            request=MagicMock(),
+            response=mock_response,
+        )
+
+        with (
+            patch("tg_wp_bridge.wordpress_api.settings") as mock_settings,
+            patch("httpx.AsyncClient") as mock_async_client,
+        ):
+            mock_settings.wp_base_url = "https://wordpress.example.com"
+            mock_settings.wp_username = "testuser"
+            mock_settings.wp_app_password = "testpass"
+            mock_settings.wp_skip = False
+
+            mock_client = AsyncMock()
+            mock_async_client.return_value.__aenter__.return_value = mock_client
+            mock_client.post.side_effect = err
+
+            result = await wordpress_api.upload_media_to_wp(
+                filename="video.mp4", content_type="video/mp4", data=test_data
+            )
+
+            assert result is None
+            assert "Failed media upload: status=500" in caplog.text
+            assert "rest_upload_unknown_error" in caplog.text
 
 
 class TestCreateWPPost:
@@ -155,6 +191,8 @@ class TestCreateWPPost:
             mock_settings.wp_app_password = "testpass"
             mock_settings.wp_publish_status = "publish"
             mock_settings.wp_category_id = 5
+            mock_settings.wp_post_type = "post"
+            mock_settings.wp_skip = False  # Important: prevent wp_skip mode
 
             mock_client = AsyncMock()
             mock_async_client.return_value.__aenter__.return_value = mock_client
@@ -193,6 +231,7 @@ class TestCreateWPPost:
             mock_settings.wp_app_password = "testpass"
             mock_settings.wp_publish_status = "publish"
             mock_settings.wp_category_id = 0  # No category
+            mock_settings.wp_skip = False  # Important: prevent wp_skip mode
 
             mock_client = AsyncMock()
             mock_async_client.return_value.__aenter__.return_value = mock_client
@@ -225,6 +264,7 @@ class TestCreateWPPost:
             mock_settings.wp_base_url = "https://wordpress.example.com"
             mock_settings.wp_username = "testuser"
             mock_settings.wp_app_password = "testpass"
+            mock_settings.wp_skip = False  # Important: prevent wp_skip mode
 
             mock_client = AsyncMock()
             mock_async_client.return_value.__aenter__.return_value = mock_client
@@ -263,6 +303,7 @@ class TestWordPressDiagnostics:
             patch("httpx.AsyncClient") as mock_client_class,
         ):
             mock_settings.wp_base_url = "https://wordpress.example.com"
+            mock_settings.wp_skip = False  # Important: prevent wp_skip mode
             client = AsyncMock()
             mock_client_class.return_value.__aenter__.return_value = client
             client.get.return_value = mock_response
@@ -283,6 +324,7 @@ class TestWordPressDiagnostics:
             mock_settings.wp_base_url = "https://wordpress.example.com"
             mock_settings.wp_username = "admin"
             mock_settings.wp_app_password = "pass"
+            mock_settings.wp_skip = False  # Important: prevent wp_skip mode
 
             client = AsyncMock()
             mock_client_class.return_value.__aenter__.return_value = client

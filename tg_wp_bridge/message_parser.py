@@ -5,22 +5,31 @@ Pure functions only – no network or IO here.
 """
 
 import re
+import mimetypes
 from dataclasses import dataclass
 from typing import Optional, List
+from .update_model import TelegramUpdate  # enhanced update model
+from .schemas import (
+    TgMessage,
+    TgPhotoSize,
+    TgVideo,
+    TgAnimation,
+    TgDocument,
+)
 
 # Emoji pattern - matches common Unicode emoji characters
 # These ranges are carefully selected to avoid overlapping with CJK characters
 _EMOJI_PATTERN = re.compile(
     "["
-    "\U0001F600-\U0001F64F"  # emoticons
-    "\U0001F300-\U0001F5FF"  # symbols & pictographs
-    "\U0001F680-\U0001F6FF"  # transport & map symbols
-    "\U0001F1E0-\U0001F1FF"  # flags (iOS)
-    "\U00002600-\U000027BF"  # misc symbols and dingbats
-    "\U0001F900-\U0001F9FF"  # supplemental symbols and pictographs
-    "\U0001FA70-\U0001FAFF"  # symbols and pictographs extended-A
-    "\U0000FE0F"             # variation selector
-    "\u200D"                 # zero width joiner (for compound emojis)
+    "\U0001f600-\U0001f64f"  # emoticons
+    "\U0001f300-\U0001f5ff"  # symbols & pictographs
+    "\U0001f680-\U0001f6ff"  # transport & map symbols
+    "\U0001f1e0-\U0001f1ff"  # flags (iOS)
+    "\U00002600-\U000027bf"  # misc symbols and dingbats
+    "\U0001f900-\U0001f9ff"  # supplemental symbols and pictographs
+    "\U0001fa70-\U0001faff"  # symbols and pictographs extended-A
+    "\U0000fe0f"  # variation selector
+    "\u200d"  # zero width joiner (for compound emojis)
     "]+",
     flags=re.UNICODE,
 )
@@ -41,15 +50,6 @@ def strip_emojis(text: str) -> str:
     """
     return _EMOJI_PATTERN.sub("", text).strip()
 
-from .update_model import TelegramUpdate  # enhanced update model
-from .schemas import (
-    TgMessage,
-    TgPhotoSize,
-    TgVideo,
-    TgAnimation,
-    TgDocument,
-)
-
 
 @dataclass
 class TelegramMedia:
@@ -65,10 +65,8 @@ def extract_message_entity(update: TelegramUpdate) -> Optional[TgMessage]:
     """
     Return the effective :class:`TgMessage` from a Telegram update.
 
-    This helper inspects the update's kind via :meth:`TelegramUpdate.get_payload`.
-    If the payload is an instance of :class:`TgMessage`, it is returned.
-    Otherwise, falls back to legacy behaviour by checking ``channel_post`` and
-    ``message`` attributes.
+    This helper prefers ``channel_post`` over ``message`` when both are present,
+    matching the expected behavior for channel-to-WordPress mirroring.
 
     Args:
         update: The :class:`TelegramUpdate` instance.
@@ -76,18 +74,26 @@ def extract_message_entity(update: TelegramUpdate) -> Optional[TgMessage]:
     Returns:
         A :class:`TgMessage` or ``None`` if no message payload is present.
     """
-    # New behaviour: use the exclusive payload returned by get_payload()
+    # Prefer channel_post over message (channel mirroring use case)
+    # This matches the legacy behavior and test expectations
+    channel_post = getattr(update, "channel_post", None)
+    if channel_post is not None:
+        return channel_post
+    message = getattr(update, "message", None)
+    if message is not None:
+        return message
+
+    # Fall back to get_payload for other update kinds (edited_message, etc.)
     try:
-        payload = update.get_payload()
         from .schemas import TgMessage as _TgMessage
 
+        payload = update.get_payload()
         if isinstance(payload, _TgMessage):
             return payload
     except Exception:
-        # If get_payload raises or is unavailable, fall back to old logic
         pass
-    # Fallback to legacy fields
-    return getattr(update, "channel_post", None) or getattr(update, "message", None)
+
+    return None
 
 
 def extract_message_text(update: TelegramUpdate) -> Optional[str]:
@@ -136,6 +142,29 @@ def _add_media(
     )
 
 
+def _infer_filename(
+    *,
+    file_id: str,
+    media_type: str,
+    file_name: Optional[str],
+    mime_type: Optional[str],
+) -> str:
+    """Return a stable filename with extension when Telegram omits file_name."""
+    if file_name:
+        return file_name
+
+    ext = mimetypes.guess_extension(mime_type or "")
+    if not ext:
+        fallback_ext = {
+            "photo": ".jpg",
+            "video": ".mp4",
+            "animation": ".gif",
+            "document": ".bin",
+        }
+        ext = fallback_ext.get(media_type, ".bin")
+    return f"{file_id}{ext}"
+
+
 def collect_supported_media(msg: TgMessage) -> List[TelegramMedia]:
     """Return a list of supported media descriptors for the message."""
 
@@ -154,32 +183,50 @@ def collect_supported_media(msg: TgMessage) -> List[TelegramMedia]:
         )
 
     if isinstance(msg.video, TgVideo):
-        _add_media(
-            media,
-            seen_ids,
+        inferred_name = _infer_filename(
             file_id=msg.video.file_id,
             media_type="video",
             file_name=msg.video.file_name,
             mime_type=msg.video.mime_type,
         )
-
-    if isinstance(msg.animation, TgAnimation):
         _add_media(
             media,
             seen_ids,
+            file_id=msg.video.file_id,
+            media_type="video",
+            file_name=inferred_name,
+            mime_type=msg.video.mime_type,
+        )
+
+    if isinstance(msg.animation, TgAnimation):
+        inferred_name = _infer_filename(
             file_id=msg.animation.file_id,
             media_type="animation",
             file_name=msg.animation.file_name,
             mime_type=msg.animation.mime_type,
         )
+        _add_media(
+            media,
+            seen_ids,
+            file_id=msg.animation.file_id,
+            media_type="animation",
+            file_name=inferred_name,
+            mime_type=msg.animation.mime_type,
+        )
 
     if isinstance(msg.document, TgDocument):
+        inferred_name = _infer_filename(
+            file_id=msg.document.file_id,
+            media_type="document",
+            file_name=msg.document.file_name,
+            mime_type=msg.document.mime_type,
+        )
         _add_media(
             media,
             seen_ids,
             file_id=msg.document.file_id,
             media_type="document",
-            file_name=msg.document.file_name,
+            file_name=inferred_name,
             mime_type=msg.document.mime_type,
         )
 
@@ -280,9 +327,10 @@ def build_slug_from_text(text: str, max_length: int = 60) -> str:
 
     # Normalize Unicode to NFD and combine characters
     # Then remove combining marks (accents, etc.)
-    normalized = unicodedata.normalize('NFKD', title)
-    ascii_title = ''.join(
-        c for c in normalized
+    normalized = unicodedata.normalize("NFKD", title)
+    ascii_title = "".join(
+        c
+        for c in normalized
         if not unicodedata.combining(c) and c.isalnum() or c.isspace()
     )
 

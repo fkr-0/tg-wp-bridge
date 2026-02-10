@@ -21,6 +21,12 @@ from .schemas import WPMediaResponse, WPPostResponse
 log = logging.getLogger("tg-wp-bridge.wordpress")
 
 
+def _truncate_text(value: str, *, limit: int = 1000) -> str:
+    if len(value) <= limit:
+        return value
+    return f"{value[:limit]}...<truncated>"
+
+
 def _ensure_wp_base_url() -> str:
     if not settings.wp_base_url:
         raise RuntimeError("WP_BASE_URL is not set; cannot talk to WordPress.")
@@ -43,7 +49,8 @@ def wp_auth_header() -> Dict[str, str]:
 
 
 async def update_wp_post(
-    *, post_id: int,
+    *,
+    post_id: int,
     title: Optional[str] = None,
     content_html: Optional[str] = None,
     slug: Optional[str] = None,
@@ -92,9 +99,7 @@ async def update_wp_post(
 
     # Respect wp_skip: return dummy response
     if settings.wp_skip:
-        log.info(
-            "wp_skip is enabled; skipping update of WordPress post id=%s", post_id
-        )
+        log.info("wp_skip is enabled; skipping update of WordPress post id=%s", post_id)
         return WPPostResponse(
             id=post_id,
             link=None,
@@ -109,7 +114,10 @@ async def update_wp_post(
             resp.raise_for_status()
         except Exception:
             log.error(
-                "Failed updating WP post %s: %s / %s", post_id, resp.status_code, resp.text
+                "Failed updating WP post %s: %s / %s",
+                post_id,
+                resp.status_code,
+                resp.text,
             )
             raise
         data = resp.json()
@@ -133,6 +141,68 @@ async def list_wp_post_types() -> Dict[str, Any]:
         resp = await client.get(url, timeout=10.0)
         resp.raise_for_status()
         return resp.json()
+
+
+async def get_wp_post_content(post_id: int) -> str:
+    """Fetch post content for merge updates.
+
+    Prefers ``content.raw`` via ``context=edit`` and falls back to
+    ``content.rendered`` if raw content is unavailable.
+    """
+    if settings.wp_skip:
+        log.info("wp_skip enabled; returning empty content for post id=%s", post_id)
+        return ""
+
+    base = _ensure_wp_base_url()
+    post_type = settings.wp_post_type or "post"
+    wp_endpoint = "posts" if post_type == "post" else post_type
+    url = f"{base}/wp-json/wp/v2/{wp_endpoint}/{post_id}"
+    headers = wp_auth_header()
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            url,
+            headers=headers,
+            params={"context": "edit"},
+            timeout=20.0,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        content = payload.get("content") or {}
+        raw = content.get("raw")
+        if isinstance(raw, str):
+            return raw
+        rendered = content.get("rendered")
+        return rendered if isinstance(rendered, str) else ""
+
+
+async def get_wp_post_featured_media(post_id: int) -> Optional[int]:
+    """Fetch current featured media ID for a post."""
+    if settings.wp_skip:
+        log.info(
+            "wp_skip enabled; returning no featured media for post id=%s", post_id
+        )
+        return None
+
+    base = _ensure_wp_base_url()
+    post_type = settings.wp_post_type or "post"
+    wp_endpoint = "posts" if post_type == "post" else post_type
+    url = f"{base}/wp-json/wp/v2/{wp_endpoint}/{post_id}"
+    headers = wp_auth_header()
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            url,
+            headers=headers,
+            params={"context": "edit"},
+            timeout=20.0,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        featured = payload.get("featured_media")
+        if isinstance(featured, int) and featured > 0:
+            return featured
+        return None
 
 
 async def list_wp_categories(per_page: int = 100) -> Any:
@@ -236,8 +306,33 @@ async def upload_media_to_wp(
                 getattr(media, "mime_type", content_type),
             )
             return media
-    except Exception as e:
+    except httpx.HTTPStatusError as e:
+        resp = e.response
+        status = resp.status_code if resp is not None else "unknown"
+        body = ""
+        if resp is not None:
+            try:
+                body = _truncate_text(resp.text or "")
+            except Exception:
+                body = "<unavailable>"
+        log.error(
+            "Failed media upload: status=%s filename=%s content_type=%s size=%s body=%s",
+            status,
+            filename,
+            content_type,
+            len(data),
+            body,
+        )
         log.exception("Failed to upload media to WordPress: %s", e)
+        return None
+    except Exception as e:
+        log.exception(
+            "Failed to upload media to WordPress: filename=%s content_type=%s size=%s error=%s",
+            filename,
+            content_type,
+            len(data),
+            e,
+        )
         return None
 
 
