@@ -136,11 +136,11 @@ def _record_update_log(
     """Record raw update and optional WordPress result to disk.
 
     A log directory is defined by the ``STORAGE_DIR`` environment variable
-    or defaults to ``logs``.  Files are named using ISO timestamps and the
+    or defaults to ``data/logs``.  Files are named using ISO timestamps and the
     Telegram update ID.  WordPress results include the post ID in the
     filename when available.
     """
-    preferred_storage_dir = Path(os.getenv("STORAGE_DIR", "logs"))
+    preferred_storage_dir = Path(os.getenv("STORAGE_DIR", "data/logs"))
     storage_dir = _resolve_writable_dir(
         preferred_storage_dir,
         fallback_env_var="STORAGE_FALLBACK_DIR",
