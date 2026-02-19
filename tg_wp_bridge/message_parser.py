@@ -258,7 +258,7 @@ def extract_hashtags(text: str) -> List[str]:
     return hashtags
 
 
-def build_title_from_text(text: str, max_length: int = 60) -> str:
+def build_title_from_text(text: str, max_length: Optional[int] = None) -> str:
     """
     Build a reasonable post title from the message text.
 
@@ -266,7 +266,7 @@ def build_title_from_text(text: str, max_length: int = 60) -> str:
     - Take the first non-empty line.
     - Drop leading hashtags from that line (e.g. '#blog #news Title here').
     - Strip emojis for cleaner titles.
-    - Truncate to max_length characters.
+    - Optionally truncate to max_length characters when provided.
     - Fallback: '(no title)'.
     """
     for raw_line in text.splitlines():
@@ -297,13 +297,27 @@ def build_title_from_text(text: str, max_length: int = 60) -> str:
         if not candidate:
             continue
 
-        # Truncate to max_length AFTER processing
-        if len(candidate) > max_length:
+        # Truncate only when explicitly requested.
+        if max_length is not None and max_length > 0 and len(candidate) > max_length:
             candidate = candidate[:max_length]
 
         return candidate
 
     return "(no title)"
+
+
+def strip_title_line_from_text(text: str) -> str:
+    """Remove the first non-empty line so title isn't duplicated in post body."""
+    lines = text.splitlines()
+    first_nonempty_index: Optional[int] = None
+    for idx, raw_line in enumerate(lines):
+        if raw_line.strip():
+            first_nonempty_index = idx
+            break
+    if first_nonempty_index is None:
+        return ""
+    remainder = lines[first_nonempty_index + 1 :]
+    return "\n".join(remainder).strip()
 
 
 def build_slug_from_text(text: str, max_length: int = 60) -> str:

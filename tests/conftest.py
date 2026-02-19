@@ -109,6 +109,10 @@ def clean_settings(monkeypatch):
         "WP_POST_TYPE",
         "WP_USE_FEATURED_MEDIA",
         "REQUIRED_HASHTAG",
+        "TG_MEDIA_RETRY_ATTEMPTS",
+        "TG_MEDIA_RETRY_BACKOFF_SECONDS",
+        "TG_MEDIA_GROUP_WAIT_TIMEOUT_SECONDS",
+        "TG_MEDIA_GROUP_WAIT_INTERVAL_SECONDS",
     ]
 
     for var in env_vars_to_clean:
@@ -219,6 +223,10 @@ def pure_defaults_only(monkeypatch):
         "WP_POST_TYPE",
         "WP_USE_FEATURED_MEDIA",
         "REQUIRED_HASHTAG",
+        "TG_MEDIA_RETRY_ATTEMPTS",
+        "TG_MEDIA_RETRY_BACKOFF_SECONDS",
+        "TG_MEDIA_GROUP_WAIT_TIMEOUT_SECONDS",
+        "TG_MEDIA_GROUP_WAIT_INTERVAL_SECONDS",
     ]
 
     for var in env_vars_to_clean:

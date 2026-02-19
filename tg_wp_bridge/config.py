@@ -96,6 +96,26 @@ class Settings(BaseSettings):
         alias="TG_SKIP",
         description="If True, dont setup webhook, skip processing incoming Telegram messages (for testing).",
     )
+    tg_media_retry_attempts: int = Field(
+        default=3,
+        alias="TG_MEDIA_RETRY_ATTEMPTS",
+        description="How many times media file URL resolution/download should be retried before giving up.",
+    )
+    tg_media_retry_backoff_seconds: float = Field(
+        default=1.0,
+        alias="TG_MEDIA_RETRY_BACKOFF_SECONDS",
+        description="Sleep duration between failed media retry attempts.",
+    )
+    tg_media_group_wait_timeout_seconds: float = Field(
+        default=300.0,
+        alias="TG_MEDIA_GROUP_WAIT_TIMEOUT_SECONDS",
+        description="How long a media-group continuation should wait for the primary message mapping before creating a fallback post.",
+    )
+    tg_media_group_wait_interval_seconds: float = Field(
+        default=1.0,
+        alias="TG_MEDIA_GROUP_WAIT_INTERVAL_SECONDS",
+        description="Polling interval when waiting for a media-group primary mapping.",
+    )
 
     # Optional filtering: only mirror messages that contain this hashtag.
     # Example: "#blog". Leave unset (None) to mirror all channel messages.

@@ -240,6 +240,21 @@ def test_build_title_from_text_very_long_line():
     assert title == "A" * 200
 
 
+def test_build_title_from_text_does_not_truncate_by_default():
+    text = "Mindestens vier K.O.-Tropfen-Angriffe auf Frauen bei Fastnachtsfeiern in Mainz"
+    title = message_parser.build_title_from_text(text)
+    assert (
+        title
+        == "Mindestens vier K.O.-Tropfen-Angriffe auf Frauen bei Fastnachtsfeiern in Mainz"
+    )
+
+
+def test_strip_title_line_from_text_removes_first_nonempty_line():
+    text = "My headline\nBody line 1\nBody line 2"
+    body = message_parser.strip_title_line_from_text(text)
+    assert body == "Body line 1\nBody line 2"
+
+
 def test_extract_message_text_with_empty_string():
     """Test message text extraction when both text and caption are empty strings."""
     update = make_update(text="", caption="")

@@ -20,6 +20,7 @@ Features provided here include:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -38,6 +39,7 @@ from .message_parser import (
     extract_message_text,
     build_title_from_text,
     build_slug_from_text,
+    strip_title_line_from_text,
     text_to_html,
 )
 from .schemas import TgMessage  # message model
@@ -219,17 +221,70 @@ def _extract_video_preview_media(msg: TgMessage) -> Optional[TelegramMedia]:
     return None
 
 
+async def _wait_for_media_group_mapping(
+    media_group_key: str,
+    *,
+    timeout_seconds: float,
+    poll_interval_seconds: float,
+) -> Optional[int]:
+    """Wait until a media-group mapping exists and return its WP post ID."""
+    timeout = max(0.0, float(timeout_seconds))
+    poll_interval = max(0.01, float(poll_interval_seconds))
+    deadline = asyncio.get_running_loop().time() + timeout
+
+    while True:
+        current_mapping = _load_mapping()
+        wp_id = current_mapping.get(media_group_key)
+        if wp_id is not None:
+            return int(wp_id)
+        if asyncio.get_running_loop().time() >= deadline:
+            return None
+        await asyncio.sleep(poll_interval)
+
+
 async def _upload_single_media(media: TelegramMedia) -> Optional[Any]:
     """Upload one Telegram media descriptor to WordPress."""
-    file_url = await get_file_direct_url(media.file_id)
-    if not file_url:
-        log.warning(
-            "No file URL resolved for media %s (%s)",
+    retry_attempts = max(1, int(getattr(settings, "tg_media_retry_attempts", 3)))
+    retry_backoff_seconds = max(
+        0.0, float(getattr(settings, "tg_media_retry_backoff_seconds", 1.0))
+    )
+
+    file_url: Optional[str] = None
+    blob: Optional[bytes] = None
+    last_error: Optional[Exception] = None
+    for attempt in range(1, retry_attempts + 1):
+        try:
+            file_url = await get_file_direct_url(media.file_id)
+            if not file_url:
+                raise RuntimeError(
+                    f"No file URL resolved for media {media.file_id} ({media.media_type})"
+                )
+            blob = await download_file(file_url)
+            last_error = None
+            break
+        except Exception as exc:
+            last_error = exc
+            if attempt >= retry_attempts:
+                break
+            log.warning(
+                "Media download attempt %s/%s failed for file_id=%s: %s; retrying",
+                attempt,
+                retry_attempts,
+                media.file_id,
+                exc,
+            )
+            if retry_backoff_seconds > 0:
+                await asyncio.sleep(retry_backoff_seconds)
+
+    if last_error is not None or not file_url or blob is None:
+        log.exception(
+            "Giving up media upload for file_id=%s after %s attempts",
             media.file_id,
-            media.media_type,
+            retry_attempts,
+            exc_info=last_error,
         )
         return None
-    blob = await download_file(file_url)
+
     file_name = media.file_name or media.file_id
     mime = media.mime_type or "application/octet-stream"
     log.info(
@@ -431,7 +486,8 @@ async def _process_new_message(update: TelegramUpdate, msg: TgMessage) -> None:
     # Build post title and slug
     title = build_title_from_text(text)
     slug = build_slug_from_text(text)
-    content_html = text_to_html(text) if text.strip() else ""
+    body_text = strip_title_line_from_text(text)
+    content_html = text_to_html(body_text) if body_text.strip() else ""
 
     # Idempotency: Telegram may deliver duplicates; avoid creating multiple posts.
     mapping = _load_mapping()
@@ -439,6 +495,33 @@ async def _process_new_message(update: TelegramUpdate, msg: TgMessage) -> None:
     existing_wp_id = mapping.get(str(msg.message_id))
     if existing_wp_id is None and media_group_key:
         existing_wp_id = mapping.get(media_group_key)
+    if (
+        existing_wp_id is None
+        and media_group_key
+        and media_entries
+        and not text.strip()
+    ):
+        timeout = getattr(settings, "tg_media_group_wait_timeout_seconds", 300.0)
+        interval = getattr(settings, "tg_media_group_wait_interval_seconds", 1.0)
+        if timeout > 0:
+            log.info(
+                "No mapping yet for media-group continuation message=%s key=%s; waiting up to %.1fs",
+                msg.message_id,
+                media_group_key,
+                timeout,
+            )
+            existing_wp_id = await _wait_for_media_group_mapping(
+                media_group_key,
+                timeout_seconds=timeout,
+                poll_interval_seconds=interval,
+            )
+            if existing_wp_id is not None:
+                log.info(
+                    "Found media-group primary mapping for message=%s key=%s -> wp_id=%s",
+                    msg.message_id,
+                    media_group_key,
+                    existing_wp_id,
+                )
     if existing_wp_id:
         if media_group_key and str(msg.message_id) not in mapping:
             # Merge later media-group parts into the original WordPress post.
@@ -745,7 +828,8 @@ async def _process_edited_message(update: TelegramUpdate, msg: TgMessage) -> Non
     text = extract_message_text(update) or ""
     title = build_title_from_text(text)
     slug = build_slug_from_text(text)
-    content_html = text_to_html(text) if text.strip() else ""
+    body_text = strip_title_line_from_text(text)
+    content_html = text_to_html(body_text) if body_text.strip() else ""
 
     # Look up WordPress post ID
     mapping = _load_mapping()
