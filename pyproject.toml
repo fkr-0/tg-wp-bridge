@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tg-wp-bridge"
-version = "0.4.0"
+version = "0.5.0"
 description = "Minimal Telegram → WordPress bridge (channel posts to blog posts)"
 readme = "README.md"
 

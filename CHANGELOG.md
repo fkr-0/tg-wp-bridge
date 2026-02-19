@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-02-19
+
+### Added
+- Media download hardening controls:
+  - `TG_MEDIA_RETRY_ATTEMPTS`
+  - `TG_MEDIA_RETRY_BACKOFF_SECONDS`
+  - `TG_MEDIA_GROUP_WAIT_TIMEOUT_SECONDS`
+  - `TG_MEDIA_GROUP_WAIT_INTERVAL_SECONDS`
+- Regression tests for:
+  - transient Telegram media resolution failures with retry
+  - non-fatal media upload failures (post still created without media)
+  - out-of-order media-group continuation handling
+  - title/body de-duplication in mirrored posts
+
+### Changed
+- Default log directory is now `data/logs` (can still be overridden via `STORAGE_DIR`).
+- Title generation no longer truncates by default, preventing cut-off post titles.
+- Mirrored post body now strips the first non-empty line (used as title) to avoid duplicated title text in content.
+
+### Fixed
+- Media-group race where a continuation message could be processed before the primary message mapping existed.
+- Media processing path now retries transient Telegram media resolution/download failures before giving up.
+- Media failures no longer abort post creation; posts are still created with available text/content.
+
 ## [0.3.0] - 2025-01-24
 
 ### Added
