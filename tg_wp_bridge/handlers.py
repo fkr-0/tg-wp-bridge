@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import tempfile
+import traceback
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
@@ -54,6 +55,11 @@ from .wordpress_api import (
 )
 
 log = logging.getLogger("tg-wp-bridge.handlers")
+
+
+def _message_prefixed_log(msg_id: int, message: str, *args: Any) -> None:
+    """Log a message prefixed with the Telegram message id."""
+    log.info("%s > " + message, msg_id, *args)
 
 
 def _resolve_writable_dir(
@@ -175,6 +181,54 @@ def _record_update_log(
     _rotate_logs(storage_dir)
 
     return out
+
+
+def _record_error_artifact(
+    update: TelegramUpdate,
+    exc: BaseException,
+    *,
+    tg_message_id: Optional[int] = None,
+    wp_post: Optional[Dict[str, Any]] = None,
+) -> Optional[str]:
+    """Write a timestamped `.error` artifact with raw update and traceback."""
+    preferred_storage_dir = Path(os.getenv("STORAGE_DIR", "data/logs"))
+    storage_dir = _resolve_writable_dir(
+        preferred_storage_dir,
+        fallback_env_var="STORAGE_FALLBACK_DIR",
+        fallback_subdir="logs",
+    )
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    error_path = storage_dir / f"{ts}.error"
+    payload = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "message_id": tg_message_id,
+        "telegram_update": update.model_dump(mode="json", exclude_none=True),
+        "wp_post": wp_post,
+        "exception": f"{type(exc).__name__}: {exc}",
+        "traceback": "".join(
+            traceback.format_exception(type(exc), exc, exc.__traceback__)
+        ),
+    }
+    try:
+        with error_path.open("w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, indent=2)
+        _rotate_logs(storage_dir)
+        return str(error_path)
+    except Exception:
+        log.exception("Failed to write error artifact for update %s", update.update_id)
+        return None
+
+
+def _edited_timestamp_iso(msg: TgMessage) -> str:
+    edit_date = getattr(msg, "edit_date", None)
+    if isinstance(edit_date, int):
+        return datetime.fromtimestamp(edit_date, tz=timezone.utc).isoformat()
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _append_edited_marker(content_html: str, edited_iso: str) -> str:
+    marker = f"<p><em>Edited at: {escape(edited_iso)}</em></p>"
+    return f"{content_html}{marker}" if content_html else marker
 
 
 def _stats_for_text(text: str) -> Dict[str, int]:
@@ -430,6 +484,8 @@ async def _process_new_message(update: TelegramUpdate, msg: TgMessage) -> None:
     ``required_hashtag``, ``hashtag_allowlist``, and ``hashtag_blocklist``
     configuration values.
     """
+    _message_prefixed_log(msg.message_id, "Processing new message")
+
     # Skip processing entirely if tg_skip is set
     if settings.tg_skip:
         log.info(
@@ -788,7 +844,8 @@ async def _process_new_message(update: TelegramUpdate, msg: TgMessage) -> None:
             if media_group_key:
                 mapping[media_group_key] = post.id
             _save_mapping(mapping)
-        except Exception:
+        except Exception as exc:
+            _record_error_artifact(update, exc, tg_message_id=msg.message_id)
             log.exception("Failed to create WP post for message %s", msg.message_id)
 
     # Record log after processing
@@ -817,6 +874,8 @@ async def _process_edited_message(update: TelegramUpdate, msg: TgMessage) -> Non
     mapping.  If found, updates the post title and content.  If not
     found, logs the event and stores the update for future reference.
     """
+    _message_prefixed_log(msg.message_id, "Processing edited message")
+
     # Skip entirely if tg_skip
     if settings.tg_skip:
         log.info(
@@ -830,6 +889,7 @@ async def _process_edited_message(update: TelegramUpdate, msg: TgMessage) -> Non
     slug = build_slug_from_text(text)
     body_text = strip_title_line_from_text(text)
     content_html = text_to_html(body_text) if body_text.strip() else ""
+    content_html = _append_edited_marker(content_html, _edited_timestamp_iso(msg))
 
     # Look up WordPress post ID
     mapping = _load_mapping()
@@ -880,7 +940,8 @@ async def _process_edited_message(update: TelegramUpdate, msg: TgMessage) -> Non
                 slug=slug,
             )
             wp_result = post.model_dump(mode="json")
-        except Exception:
+        except Exception as exc:
+            _record_error_artifact(update, exc, tg_message_id=msg.message_id)
             log.exception("Failed to update WP post id=%s", wp_id)
     # Record logs
     paths = _record_update_log(update, wp_result, tg_message_id=msg.message_id)

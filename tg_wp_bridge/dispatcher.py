@@ -23,7 +23,13 @@ the update is ignored.
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import tempfile
+import traceback
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict
 
 from .update_model import TelegramUpdate, UpdateKind
@@ -34,6 +40,42 @@ HandlerFunc = Callable[[TelegramUpdate, Any], Awaitable[None]]
 
 # Registry mapping update kinds to handler functions
 _handlers: Dict[UpdateKind, HandlerFunc] = {}
+
+
+def _resolve_writable_dir(path: Path) -> Path:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    except PermissionError:
+        fallback = Path(
+            os.getenv(
+                "STORAGE_FALLBACK_DIR",
+                str(Path(tempfile.gettempdir()) / "tg-wp-bridge" / "logs"),
+            )
+        )
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback
+
+
+def _record_dispatch_error(update: TelegramUpdate, exc: BaseException) -> None:
+    storage_dir = _resolve_writable_dir(Path(os.getenv("STORAGE_DIR", "data/logs")))
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    error_path = storage_dir / f"{ts}.error"
+    payload = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "message_id": getattr(update.get_payload(), "message_id", None),
+        "telegram_update": update.model_dump(mode="json", exclude_none=True),
+        "wp_post": None,
+        "exception": f"{type(exc).__name__}: {exc}",
+        "traceback": "".join(
+            traceback.format_exception(type(exc), exc, exc.__traceback__)
+        ),
+    }
+    try:
+        with error_path.open("w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, indent=2)
+    except Exception:
+        log.exception("Failed to write dispatcher error artifact for update %s", update.update_id)
 
 
 def clear_handlers() -> None:
@@ -95,7 +137,8 @@ async def dispatch_update(update: TelegramUpdate) -> None:
         return
     try:
         await handler(update, payload)
-    except Exception:
+    except Exception as exc:
+        _record_dispatch_error(update, exc)
         log.exception(
             "Error while handling update %s of kind %s", update.update_id, kind.value
         )

@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-03-03
+
+### Added
+- Timestamped `.error` artifacts (`<timestamp>.error`) for major processing failures with:
+  - raw Telegram update payload
+  - associated WordPress post payload (when available)
+  - full Python traceback
+- Dispatcher-level `.error` artifact capture for uncaught handler exceptions.
+
+### Changed
+- Processing logs now start with a message-scoped prefix:
+  - `<message-id> > <log-msg>`
+- Edited-message sync appends an `Edited at: <timestamp>` marker to mirrored WordPress content.
+
+### Fixed
+- WordPress media upload now handles non-ASCII filenames safely by using RFC5987-compatible
+  `Content-Disposition` encoding, preventing ASCII codec failures for names like `Schüsse.mp4`.
+
 ## [0.5.0] - 2026-02-19
 
 ### Added

@@ -164,6 +164,42 @@ class TestUploadMediaToWP:
             assert "Failed media upload: status=500" in caplog.text
             assert "rest_upload_unknown_error" in caplog.text
 
+    @pytest.mark.asyncio
+    async def test_upload_media_non_ascii_filename_uses_rfc5987_header(self):
+        """Unicode filenames should be encoded safely for ASCII-only HTTP headers."""
+        test_data = b"fake video data"
+        mock_response_data = {"id": 123, "source_url": "https://example.com/file.mp4"}
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json = MagicMock(return_value=mock_response_data)
+
+        with (
+            patch("tg_wp_bridge.wordpress_api.settings") as mock_settings,
+            patch("httpx.AsyncClient") as mock_async_client,
+        ):
+            mock_settings.wp_base_url = "https://wordpress.example.com"
+            mock_settings.wp_username = "testuser"
+            mock_settings.wp_app_password = "testpass"
+            mock_settings.wp_skip = False
+
+            mock_client = AsyncMock()
+            mock_async_client.return_value.__aenter__.return_value = mock_client
+            mock_client.post.return_value = mock_response
+
+            await wordpress_api.upload_media_to_wp(
+                filename="Pakistan Schüsse.mp4",
+                content_type="video/mp4",
+                data=test_data,
+            )
+
+            headers = mock_client.post.call_args.kwargs["headers"]
+            disposition = headers["Content-Disposition"]
+
+            assert "filename*=UTF-8''" in disposition
+            assert "Sch%C3%BCsse" in disposition
+            assert "Schüsse" not in disposition
+
 
 class TestCreateWPPost:
     """Test create_wp_post function."""

@@ -12,6 +12,7 @@ Responsibilities:
 import base64
 import logging
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 import httpx
 
@@ -46,6 +47,18 @@ def wp_auth_header() -> Dict[str, str]:
     token = f"{settings.wp_username}:{settings.wp_app_password}".encode("utf-8")
     b64 = base64.b64encode(token).decode("ascii")
     return {"Authorization": f"Basic {b64}"}
+
+
+def _build_content_disposition(filename: str) -> str:
+    """Build an ASCII-safe Content-Disposition header for uploads.
+
+    Uses RFC 5987 encoding for UTF-8 names while keeping a conservative
+    ASCII fallback filename parameter for broad compatibility.
+    """
+    fallback = "".join(ch if 32 <= ord(ch) < 127 else "_" for ch in filename)
+    fallback = fallback.replace('"', "_") or "upload.bin"
+    encoded = quote(filename, safe="")
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
 
 
 async def update_wp_post(
@@ -278,7 +291,7 @@ async def upload_media_to_wp(
     media_url = f"{base}/wp-json/wp/v2/media"
     headers = {
         **wp_auth_header(),
-        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Disposition": _build_content_disposition(filename),
         "Content-Type": content_type,
     }
 
